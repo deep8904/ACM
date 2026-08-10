@@ -31,7 +31,7 @@ describe("free hosted scheduler configuration", () => {
       "cancel-in-progress": boolean;
     };
     const jobs = workflow.jobs as {
-      drain: { steps: { run?: string }[] };
+      drain: { env: Record<string, string>; steps: { run?: string }[] };
     };
 
     expect(triggers.schedule).toEqual([{ cron: "*/15 * * * *" }]);
@@ -44,6 +44,7 @@ describe("free hosted scheduler configuration", () => {
       name: "Reconcile and drain durable work",
       run: "npm run automation:worker",
     });
+    expect(jobs.drain.env.SITE_ORIGIN).toBe("${{ vars.SITE_ORIGIN }}");
   });
 
   it("creates one deterministic discovery identity per UTC day", () => {
