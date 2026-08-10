@@ -33,6 +33,7 @@ jobs:
       BLOG_GITHUB_TOKEN: ${{ secrets.BLOG_GITHUB_TOKEN }}
       BLOG_REPOSITORY: deep8904/Deep-Blog
       BLOG_DEFAULT_BRANCH: main
+      SITE_ORIGIN: ${{ vars.SITE_ORIGIN }}
       PUBLICATION_CONFIG: automation/config/publication.production.yaml
       VERCEL_DEPLOYMENT_METADATA_SOURCE: github
       CONTROL_PLANE_ORIGIN: ${{ vars.CONTROL_PLANE_ORIGIN }}
