@@ -26,14 +26,9 @@ flowchart LR
 
 ### Scheduler
 
-GitHub Actions starts discovery runs at configurable times. The production recommendation is two scheduled editorial cycles per week, with an optional daily lightweight discovery scan.
+On the free hosted V1, GitHub Actions is the primary scheduler, reconciler, and worker. It runs the durable worker every 15 minutes and also supports manual dispatch. A repository-level concurrency group prevents overlapping runs. Each invocation reconciles durable Postgres jobs before draining them and records scheduler/worker heartbeats.
 
-A low-token schedule:
-
-- Daily lightweight discovery: collect and score without AI unless a topic crosses a threshold.
-- Tuesday morning: prepare topic recommendations.
-- Friday morning: prepare topic recommendations.
-- Optional breaking-news run triggered manually.
+Reconciliation enqueues one deterministic discovery job per UTC day. Repeated 15-minute runs reuse the same idempotency key, so daily discovery happens automatically without duplicate daily jobs. Optional breaking-news runs can be triggered manually.
 
 ### Discovery service
 
@@ -154,7 +149,11 @@ stateDiagram-v2
 
 ### GitHub Actions
 
-Good for scheduled discovery and batch processing. It is not ideal for receiving Telegram webhooks continuously.
+Runs the frequent scheduler/reconciler/worker loop. The runner filesystem is temporary; Postgres is the only durable queue and state store. GitHub Actions is not used for receiving Telegram webhooks continuously.
+
+### Vercel Hobby
+
+Hosts the stable Telegram webhook, health endpoint, signed previews, and authenticated HTTP control routes. No Vercel-native cron is required, so the V1 architecture does not require a Pro plan. `/api/cron/reconcile` remains available as an authenticated recovery/control endpoint but is not part of normal scheduling.
 
 ### Telegram interaction options
 

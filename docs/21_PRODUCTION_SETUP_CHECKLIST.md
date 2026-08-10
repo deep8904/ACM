@@ -19,7 +19,7 @@ Configure the ACM repository's protected `production` environment with:
 - `BLOG_GITHUB_TOKEN` scoped to `deep8904/Deep-Blog` Contents read/write, Metadata read, and Deployments read
 - `GOOGLE_AI_API_KEY`, `PREVIEW_SIGNING_SECRET`, `CRON_SECRET`
 
-Set `CONTROL_PLANE_ORIGIN` as a GitHub environment variable. The checked-in `automation-worker.yml` handles migration checks, reconciliation, leases, retries, and long-running stages.
+Set `CONTROL_PLANE_ORIGIN` as a GitHub environment variable. The checked-in `automation-worker.yml` is the primary scheduler and runs every 15 minutes. It handles migration checks, daily discovery, reconciliation, leases, retries, and long-running stages. Its concurrency guard prevents overlapping workers, and `workflow_dispatch` provides a safe manual trigger.
 
 ## 3. Vercel control plane
 
@@ -38,8 +38,10 @@ The stable endpoints are:
 
 - `POST /api/telegram/webhook`
 - `GET /api/health`
-- `GET /api/cron/reconcile` with Vercel's cron authorization
+- `GET /api/cron/reconcile` with bearer `CRON_SECRET` authorization (optional control endpoint; not called by a Vercel-native cron)
 - `GET /api/preview/<signed-id>` for expiring private article previews
+
+The project has no Vercel Cron Jobs configuration. Vercel Hobby therefore deploys without a paid plan; normal scheduling and worker execution happen in GitHub Actions.
 
 ## 4. Permanent Telegram webhook
 
@@ -55,6 +57,7 @@ Use the configured webhook secret token. Remove the old `trycloudflare.com` webh
 
 - Database migration is `018/018` and valid.
 - The GitHub worker workflow completes from `workflow_dispatch` without a laptop.
+- A scheduled or manually dispatched worker run writes a fresh `github_actions` scheduler heartbeat and a fresh worker heartbeat.
 - `/api/health` returns ready.
 - Telegram `/system_status` returns ready.
 - Read-only GitHub checks can resolve Deep-Blog main, the existing production article bytes, and a `vercel[bot]` Production deployment.

@@ -46,8 +46,8 @@ Failures stop safely. Telegram shows a short reason and diagnostic reference, ne
 
 ## Hosted architecture
 
-- Vercel: stable HTTPS Telegram webhook, health endpoint, signed private previews, and short reconciliation cron.
-- GitHub Actions: long-running lease-based worker every ten minutes; no laptop process is involved.
+- Vercel Hobby: stable HTTPS Telegram webhook, health endpoint, signed private previews, and authenticated control routes. No Vercel-native cron is required and no Pro upgrade is needed.
+- GitHub Actions: primary scheduler, reconciler, and lease-based worker every fifteen minutes; no laptop process is involved. Each run writes the scheduler and worker heartbeats used by `/system_status`.
 - Supabase/Postgres: sole durable workflow, artifact, approval, queue, lease, provenance, and audit source of truth.
 - Google Gemini API: structured research synthesis, writing, editorial review, and revision through a provider abstraction. Deterministic evidence and quality gates remain authoritative.
 - GitHub `deep8904/Deep-Blog`: exact compare-and-swap commit of one approved MDX artifact to `main`.

@@ -1,6 +1,49 @@
 import { checkDatabaseHealth } from "../database/health";
 import type { DatabaseClient } from "../database/client";
+import type { SystemHeartbeat } from "./models";
 import { PostgresAutomationJobRepository } from "./repository";
+
+const SCHEDULER_MAX_AGE_MS = 30 * 60 * 1000;
+const WORKER_MAX_AGE_MS = 30 * 60 * 1000;
+const WEBHOOK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+export function evaluateAutomationHeartbeats(
+  heartbeats: SystemHeartbeat[],
+  now = new Date(),
+) {
+  const latest = new Map(
+    heartbeats.map((heartbeat) => [heartbeat.component, heartbeat]),
+  );
+  const worker = latest.get("worker");
+  const scheduler = latest.get("scheduler");
+  const webhook = latest.get("webhook");
+  const age = (value: SystemHeartbeat | undefined) =>
+    value
+      ? Math.max(0, now.getTime() - Date.parse(value.observedAt))
+      : undefined;
+  const schedulerSource =
+    typeof scheduler?.details.source === "string"
+      ? scheduler.details.source
+      : "unknown";
+
+  return {
+    webhook:
+      webhook && (age(webhook) ?? Infinity) < WEBHOOK_MAX_AGE_MS
+        ? webhook.status
+        : "unknown",
+    scheduler:
+      scheduler &&
+      schedulerSource === "github_actions" &&
+      (age(scheduler) ?? Infinity) < SCHEDULER_MAX_AGE_MS
+        ? scheduler.status
+        : "stale",
+    schedulerSource,
+    worker:
+      worker && (age(worker) ?? Infinity) < WORKER_MAX_AGE_MS
+        ? worker.status
+        : "stale",
+  };
+}
 
 export async function productionReadiness(
   sql: DatabaseClient,
@@ -24,28 +67,13 @@ export async function productionReadiness(
   const missing = required.filter((name) => !environment[name]);
   const jobs = new PostgresAutomationJobRepository(sql);
   const heartbeats = await jobs.heartbeats();
-  const latest = new Map(
-    heartbeats.map((heartbeat) => [heartbeat.component, heartbeat]),
-  );
-  const worker = latest.get("worker");
-  const scheduler = latest.get("scheduler");
-  const webhook = latest.get("webhook");
-  const age = (value: typeof worker) =>
-    value ? Math.max(0, Date.now() - Date.parse(value.observedAt)) : undefined;
+  const automation = evaluateAutomationHeartbeats(heartbeats);
   const components = {
     database: database.healthy ? "healthy" : "unhealthy",
-    webhook:
-      webhook && (age(webhook) ?? Infinity) < 24 * 60 * 60 * 1000
-        ? webhook.status
-        : "unknown",
-    scheduler:
-      scheduler && (age(scheduler) ?? Infinity) < 30 * 60 * 1000
-        ? scheduler.status
-        : "stale",
-    worker:
-      worker && (age(worker) ?? Infinity) < 30 * 60 * 1000
-        ? worker.status
-        : "stale",
+    webhook: automation.webhook,
+    scheduler: automation.scheduler,
+    schedulerSource: automation.schedulerSource,
+    worker: automation.worker,
     github:
       environment.BLOG_GITHUB_TOKEN && environment.BLOG_REPOSITORY
         ? "configured"
@@ -61,7 +89,9 @@ export async function productionReadiness(
     ready:
       database.healthy &&
       missing.length === 0 &&
-      components.vercel === "configured",
+      components.vercel === "configured" &&
+      components.scheduler === "healthy" &&
+      components.worker === "healthy",
     database: {
       healthy: database.healthy,
       migration: `${database.currentMigration}/${database.expectedMigration}`,
