@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "draft-quality-report",
+  "type": "object",
+  "properties": {
+    "draftId": {
+      "type": "string"
+    },
+    "draftVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "passed_with_warnings",
+        "blocked"
+      ]
+    },
+    "wordCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "readingTime": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "headingChecks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "frontmatterChecks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "mdxSafetyChecks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "citationCoverage": {
+      "type": "object",
+      "properties": {
+        "coveredCriticalClaims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "uncoveredCriticalClaims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unknownCitationMarkers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "citationDensity": {
+          "type": "number",
+          "minimum": 0
+        },
+        "citationQualityWarnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "coveredCriticalClaims",
+        "uncoveredCriticalClaims",
+        "unknownCitationMarkers",
+        "citationDensity",
+        "citationQualityWarnings",
+        "score"
+      ],
+      "additionalProperties": false
+    },
+    "claimSupport": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "forbiddenLanguage": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "repetition": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "linkChecks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "disclosureChecks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blockingIssues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    }
+  },
+  "required": [
+    "draftId",
+    "draftVersion",
+    "status",
+    "wordCount",
+    "readingTime",
+    "headingChecks",
+    "frontmatterChecks",
+    "mdxSafetyChecks",
+    "citationCoverage",
+    "claimSupport",
+    "forbiddenLanguage",
+    "repetition",
+    "linkChecks",
+    "disclosureChecks",
+    "blockingIssues",
+    "warnings",
+    "createdAt"
+  ],
+  "additionalProperties": false
+}

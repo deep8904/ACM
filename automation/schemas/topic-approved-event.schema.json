@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TopicApprovedEvent",
+  "type": "object",
+  "required": ["id", "topicId", "candidateId", "runId", "approvedAt", "approvedBy", "approvedAngle", "editorialNotes", "sourceItemIds", "origin", "status", "consumed", "version"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^event_[a-f0-9]{24}$" },
+    "topicId": { "type": "string" },
+    "candidateId": { "type": "string" },
+    "runId": { "type": "string" },
+    "approvedAt": { "type": "string", "format": "date-time" },
+    "approvedBy": {
+      "type": "object",
+      "required": ["telegramUserId", "telegramChatId"],
+      "properties": {
+        "telegramUserId": { "type": "string", "pattern": "^[0-9]+$" },
+        "telegramChatId": { "type": "string", "pattern": "^-?[0-9]+$" }
+      },
+      "additionalProperties": false
+    },
+    "approvedAngle": { "type": "string" },
+    "editorialNotes": { "type": "array", "items": { "type": "string" } },
+    "sourceItemIds": { "type": "array", "items": { "type": "string" } },
+    "origin": { "enum": ["ranked", "manual_topic", "manual_url"] },
+    "status": { "enum": ["ready", "cancelled"] },
+    "consumed": { "const": false },
+    "version": { "type": "integer", "minimum": 1 }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,118 @@
+[
+  {
+    "path": ".github/workflows/discovery.example.yml",
+    "bytes": 402
+  },
+  {
+    "path": ".gitignore",
+    "bytes": 102
+  },
+  {
+    "path": "CLAUDE.md",
+    "bytes": 3727
+  },
+  {
+    "path": "LICENSE",
+    "bytes": 717
+  },
+  {
+    "path": "README.md",
+    "bytes": 3165
+  },
+  {
+    "path": "automation/config/sources.example.yaml",
+    "bytes": 213
+  },
+  {
+    "path": "automation/schemas/research-packet.schema.json",
+    "bytes": 676
+  },
+  {
+    "path": "automation/schemas/topic-candidate.schema.json",
+    "bytes": 832
+  },
+  {
+    "path": "brand/audience.md",
+    "bytes": 1263
+  },
+  {
+    "path": "brand/design-style.md",
+    "bytes": 2792
+  },
+  {
+    "path": "brand/editorial-rules.md",
+    "bytes": 1680
+  },
+  {
+    "path": "brand/writing-style.md",
+    "bytes": 3538
+  },
+  {
+    "path": "docs/00_PROJECT_BRIEF.md",
+    "bytes": 3816
+  },
+  {
+    "path": "docs/01_PRODUCT_REQUIREMENTS.md",
+    "bytes": 5869
+  },
+  {
+    "path": "docs/02_SYSTEM_ARCHITECTURE.md",
+    "bytes": 6248
+  },
+  {
+    "path": "docs/03_IMPLEMENTATION_PLAN.md",
+    "bytes": 4216
+  },
+  {
+    "path": "docs/04_TREND_RESEARCH_AND_SCORING.md",
+    "bytes": 4216
+  },
+  {
+    "path": "docs/05_TELEGRAM_APPROVAL_SYSTEM.md",
+    "bytes": 2872
+  },
+  {
+    "path": "docs/06_PUBLISHING_SOCIAL_AND_SEO.md",
+    "bytes": 3226
+  },
+  {
+    "path": "docs/07_TOKEN_COST_AND_MODEL_STRATEGY.md",
+    "bytes": 3113
+  },
+  {
+    "path": "docs/08_DATA_MODELS_AND_SECURITY.md",
+    "bytes": 3095
+  },
+  {
+    "path": "docs/INDEX.md",
+    "bytes": 1277
+  },
+  {
+    "path": "examples/topic-card.md",
+    "bytes": 446
+  },
+  {
+    "path": "prompts/article-writer.md",
+    "bytes": 1045
+  },
+  {
+    "path": "prompts/editorial-review.md",
+    "bytes": 737
+  },
+  {
+    "path": "prompts/research-synthesis.md",
+    "bytes": 797
+  },
+  {
+    "path": "prompts/social-package.md",
+    "bytes": 744
+  },
+  {
+    "path": "prompts/topic-ranking.md",
+    "bytes": 1038
+  },
+  {
+    "path": "templates/article.mdx",
+    "bytes": 213
+  }
+]

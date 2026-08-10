@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TopicQueueItem",
+  "type": "object",
+  "required": ["id", "shortId", "topicId", "candidateId", "runId", "candidateSnapshot", "approvalStatus", "researchReadiness", "editorialNotes", "requestedAngle", "origin", "triggerState", "createdAt", "updatedAt", "version"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^queue_[a-f0-9]{24}$" },
+    "shortId": { "type": "string", "pattern": "^[a-f0-9]{12}$" },
+    "topicId": { "type": "string" },
+    "candidateId": { "type": "string" },
+    "runId": { "type": "string" },
+    "candidateSnapshot": { "type": "object" },
+    "approvalStatus": { "enum": ["pending", "approved", "rejected", "cancelled", "superseded"] },
+    "researchReadiness": { "enum": ["blocked_pending_approval", "ready_for_research", "rejected", "cancelled"] },
+    "editorialNotes": { "type": "array", "items": { "type": "string" } },
+    "requestedAngle": { "type": "string" },
+    "origin": { "enum": ["ranked", "manual_topic", "manual_url"] },
+    "triggerState": { "enum": ["not_triggered", "topic_approved_event_created", "cancelled"] },
+    "displayedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "version": { "type": "integer", "minimum": 1 }
+  },
+  "additionalProperties": false
+}

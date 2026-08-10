@@ -1,0 +1,22 @@
+mode: manual_claude_code
+slugMaxLength: 80
+maxMdxCharacters: 60000
+maximumTags: 8
+readingWordsPerMinute: 220
+breakingNewsMaxAgeHours: 72
+unsupportedClaimLimit: 0
+maximumTaskExcerptCharacters: 1200
+wordRanges:
+  breaking_news: { min: 700, max: 1200 }
+  news_analysis: { min: 1200, max: 2000 }
+  technical_explainer: { min: 1500, max: 2500 }
+  release_guide: { min: 1200, max: 2200 }
+  source_based_review: { min: 1800, max: 3000 }
+  buying_analysis: { min: 1500, max: 2500 }
+  comparison: { min: 1800, max: 3000 }
+  industry_analysis: { min: 1500, max: 2500 }
+  opinion_analysis: { min: 1000, max: 1800 }
+  tutorial_candidate: { min: 1500, max: 3000 }
+forbiddenPhrases: [game-changing, revolutionary, groundbreaking, cutting-edge, next-level, seamlessly, unlock, unleash, delve, leverage, robust solution, in today's fast-paced world, ever-evolving landscape, it's important to note, without further ado, the future is here, this changes everything, at the end of the day]
+aiCliches: [in this article, we will, in conclusion, whether you're a beginner or a professional, everything you need to know]
+allowedCategories: [AI, Software, Development, Hardware, Design, Gaming, Game Development, Creator Technology, Product Analysis, Industry]

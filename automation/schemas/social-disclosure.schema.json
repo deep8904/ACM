@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "relationship": {
+      "type": "string",
+      "enum": [
+        "sponsorship",
+        "affiliate",
+        "free_review_sample",
+        "paid_partnership",
+        "employer_relationship"
+      ]
+    },
+    "statement": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "platforms": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "linkedin",
+          "x",
+          "instagram",
+          "medium"
+        ]
+      }
+    },
+    "claimReference": {
+      "type": "string",
+      "pattern": "^pubclaim_[a-f0-9]{16}$"
+    }
+  },
+  "required": [
+    "relationship",
+    "statement",
+    "platforms",
+    "claimReference"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,34 @@
+sources:
+  - id: fixture-rss
+    name: Fixture RSS
+    type: rss
+    url: https://fixtures.local/rss.xml
+    authority: primary
+    topics: [software]
+    enabled: true
+    maxItems: 10
+    timeoutMs: 2000
+    language: en
+
+  - id: fixture-atom
+    name: Fixture Atom
+    type: atom
+    url: https://fixtures.local/atom.xml
+    authority: independent
+    topics: [software]
+    enabled: true
+    maxItems: 10
+    timeoutMs: 2000
+    language: en
+
+  - id: fixture-hacker-news
+    name: Fixture Hacker News
+    type: hacker-news
+    url: https://fixtures.local/hn
+    authority: community
+    topics: [software, ai]
+    enabled: true
+    maxItems: 3
+    timeoutMs: 2000
+    language: en
+    mode: top

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TelegramUpdateMilestone3",
+  "type": "object",
+  "required": ["update_id"],
+  "properties": {
+    "update_id": { "type": "integer", "minimum": 0 },
+    "message": { "$ref": "#/$defs/message" },
+    "callback_query": {
+      "type": "object",
+      "required": ["id", "from"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "from": { "$ref": "#/$defs/user" },
+        "message": { "$ref": "#/$defs/message" },
+        "data": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    }
+  },
+  "oneOf": [
+    { "required": ["message"], "not": { "required": ["callback_query"] } },
+    { "required": ["callback_query"], "not": { "required": ["message"] } }
+  ],
+  "$defs": {
+    "user": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "integer" },
+        "is_bot": { "type": "boolean" },
+        "username": { "type": "string" }
+      }
+    },
+    "chat": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "integer" },
+        "type": { "enum": ["private", "group", "supergroup", "channel"] }
+      }
+    },
+    "message": {
+      "type": "object",
+      "required": ["message_id", "date", "chat"],
+      "properties": {
+        "message_id": { "type": "integer", "minimum": 0 },
+        "date": { "type": "integer", "minimum": 0 },
+        "chat": { "$ref": "#/$defs/chat" },
+        "from": { "$ref": "#/$defs/user" },
+        "text": { "type": "string", "maxLength": 4096 }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+mode: manual_claude_code
+minimumCitationCoverage: 85
+maximumUnresolvedWarnings: 12
+criticalRiskBlocks: true
+maximumQuoteWords: 50
+maximumTotalQuoteWordsPerSource: 120
+maximumDuplicatePhraseSimilarity: 0.8
+allowedReviewDecisions: [pass, pass_with_warnings, revise, block]
+previewExpiryMinutes: 120
+conversationStateExpiryMinutes: 30
+scheduleHorizonDays: 180
+finalApprovalCallbackExpiryMinutes: 60
+defaultTimezone: America/Phoenix
+maximumTaskSourceExcerptCharacters: 1000

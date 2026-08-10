@@ -1,0 +1,7 @@
+{
+  "reviewDraftCases": ["valid", "unsupported_claim", "misleading_title", "missing_limitation", "source_disclosure", "fake_hands_on", "excessive_quotation", "critical_conflict"],
+  "reviewImportCases": ["valid", "invalid_source", "false_pass", "duplicate", "modified"],
+  "revisionCases": ["valid_targeted", "protected_fact_change", "duplicate", "modified"],
+  "approvalCases": ["valid_callback", "stale_callback", "tampered_callback", "schedule", "past_schedule", "cancel_after_approval", "revision_invalidates_approval"],
+  "note": "Executable offline cases live in src/review/__tests__ and fixture-root CLI flows. This index contains no unpublished article or source body."
+}

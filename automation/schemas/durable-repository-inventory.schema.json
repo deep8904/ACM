@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-content-machine.local/schemas/durable-repository-inventory.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["auditedAt", "schema", "explicitInterfaceCount", "directArtifactFamilyCount", "storageConcerns"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "auditedAt": { "type": "string", "format": "date" },
+    "schema": { "const": "content_machine" },
+    "explicitInterfaceCount": { "type": "integer", "minimum": 0 },
+    "directArtifactFamilyCount": { "type": "integer", "minimum": 0 },
+    "storageConcerns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["domain", "interface", "file", "postgres"],
+        "properties": {
+          "domain": { "type": "string", "minLength": 1 },
+          "interface": { "type": "string", "minLength": 1 },
+          "file": { "type": "string", "minLength": 1 },
+          "postgres": { "type": ["string", "null"] },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

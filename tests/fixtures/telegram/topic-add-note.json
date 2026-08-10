@@ -1,0 +1,19 @@
+{
+  "update_id": 7,
+  "callback_query": {
+    "id": "fixture_note",
+    "from": {
+      "id": 135790,
+      "is_bot": false
+    },
+    "message": {
+      "message_id": 1000,
+      "date": 1785000000,
+      "chat": {
+        "id": 246810,
+        "type": "private"
+      }
+    },
+    "data": "t:n:abcdef123456:1:abcdefghij"
+  }
+}

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Fixture RSS</title>
+    <item>
+      <title>Practical platform release</title>
+      <link>https://EXAMPLE.com/articles/release/?utm_source=feed&amp;edition=developer#details</link>
+      <description><![CDATA[<p>A useful <strong>release</strong>.</p><script>unsafe()</script>]]></description>
+      <dc:creator>Release Team</dc:creator>
+      <pubDate>Thu, 06 Aug 2026 12:00:00 GMT</pubDate>
+      <category>software</category>
+      <guid>rss-release-1</guid>
+    </item>
+    <item>
+      <title>Malformed entry without a link</title>
+      <description>This entry should produce a warning.</description>
+    </item>
+  </channel>
+</rss>

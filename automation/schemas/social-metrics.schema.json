@@ -1,0 +1,403 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^socialmetric_[a-f0-9]{24}$"
+    },
+    "importId": {
+      "type": "string",
+      "pattern": "^analyticsimport_[a-f0-9]{24}$"
+    },
+    "postedRecordId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "publicationId": {
+      "type": "string",
+      "pattern": "^publication_[a-f0-9]{24}$"
+    },
+    "platform": {
+      "type": "string",
+      "enum": [
+        "linkedin",
+        "x",
+        "instagram",
+        "medium"
+      ]
+    },
+    "postUrl": {
+      "type": "string",
+      "format": "uri"
+    },
+    "windowStart": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "windowEnd": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "impressions": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "views": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reach": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "likes": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reactions": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "comments": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "shares": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reposts": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "saves": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "clicks": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "profileVisits": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "engagementRate": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "videoWatchTime": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "dataCompleteness": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "enum": [
+            "high",
+            "moderate",
+            "low",
+            "insufficient"
+          ]
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "providerCoverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "dateCoverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "mappingConfidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metricStates": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "available",
+              "not_available",
+              "not_collected",
+              "not_supported",
+              "permission_denied"
+            ]
+          }
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "partialWindow": {
+          "type": "boolean"
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      },
+      "required": [
+        "label",
+        "score",
+        "providerCoverage",
+        "dateCoverage",
+        "mappingConfidence",
+        "metricStates",
+        "stale",
+        "partialWindow",
+        "conflicts",
+        "warnings"
+      ],
+      "additionalProperties": false
+    },
+    "collectionMethod": {
+      "type": "string",
+      "enum": [
+        "manual_csv",
+        "manual_json",
+        "provider_api",
+        "fixture"
+      ]
+    },
+    "normalizedMetrics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "google_search_console",
+              "vercel_web_analytics",
+              "google_analytics",
+              "manual_csv",
+              "manual_json",
+              "publication_records",
+              "social_manual",
+              "future_provider"
+            ]
+          },
+          "originalMetric": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "normalizedCategory": {
+            "type": "string",
+            "enum": [
+              "exposure",
+              "traffic",
+              "engagement",
+              "search",
+              "distribution",
+              "workflow"
+            ]
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "semantics": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "available",
+              "not_available",
+              "not_collected",
+              "not_supported",
+              "permission_denied"
+            ]
+          }
+        },
+        "required": [
+          "provider",
+          "originalMetric",
+          "normalizedCategory",
+          "value",
+          "semantics",
+          "state"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "collectedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "contentHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "id",
+    "importId",
+    "postedRecordId",
+    "publicationId",
+    "platform",
+    "postUrl",
+    "windowStart",
+    "windowEnd",
+    "impressions",
+    "views",
+    "reach",
+    "likes",
+    "reactions",
+    "comments",
+    "shares",
+    "reposts",
+    "saves",
+    "clicks",
+    "profileVisits",
+    "engagementRate",
+    "videoWatchTime",
+    "dataCompleteness",
+    "collectionMethod",
+    "normalizedMetrics",
+    "collectedAt",
+    "contentHash"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,17 @@
+{
+  "runId": "run_20260806_sample",
+  "generatedAt": "2026-08-06T12:00:00.000Z",
+  "status": "AWAITING_TOPIC_APPROVAL",
+  "candidates": [
+    {
+      "id": "topic_sample_figma_handoff",
+      "title": "Figma changes its developer handoff workflow",
+      "summary": "An example topic record for local development and tests.",
+      "recommendedAngle": "Explain what changed, who benefits, and what remains unresolved.",
+      "score": 88,
+      "sourceIds": ["source_sample_official", "source_sample_independent"],
+      "risks": [],
+      "status": "pending"
+    }
+  ]
+}

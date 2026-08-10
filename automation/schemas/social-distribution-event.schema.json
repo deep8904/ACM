@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^socialevent_[a-f0-9]{24}$"
+    },
+    "planId": {
+      "type": "string",
+      "pattern": "^socialplan_[a-f0-9]{24}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "created",
+        "platform_toggled",
+        "preparation_started",
+        "regenerated",
+        "prepared",
+        "confirmed",
+        "manual_ready",
+        "posted",
+        "failed",
+        "cancelled",
+        "skipped"
+      ]
+    },
+    "platform": {
+      "type": "string",
+      "enum": [
+        "linkedin",
+        "x",
+        "instagram",
+        "medium"
+      ]
+    },
+    "telegramUpdateId": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "callbackQueryId": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "actorUserId": {
+      "type": "string",
+      "pattern": "^\\d+$"
+    },
+    "planVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "selectedPlatforms": {
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "linkedin",
+          "x",
+          "instagram",
+          "medium"
+        ]
+      }
+    },
+    "planStatus": {
+      "type": "string",
+      "enum": [
+        "selecting",
+        "preparing",
+        "ready_for_confirmation",
+        "approved",
+        "manual_ready",
+        "completed",
+        "blocked",
+        "failed",
+        "cancelled",
+        "skipped"
+      ]
+    },
+    "snapshotHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    }
+  },
+  "required": [
+    "id",
+    "planId",
+    "sequence",
+    "type",
+    "planVersion",
+    "selectedPlatforms",
+    "planStatus",
+    "snapshotHash",
+    "createdAt"
+  ],
+  "additionalProperties": false
+}

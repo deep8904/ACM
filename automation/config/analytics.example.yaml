@@ -1,0 +1,15 @@
+enabledProviders: [publication_records, manual_csv, manual_json, google_search_console, vercel_web_analytics, social_manual]
+reportingTimezone: America/Phoenix
+comparisonPeriods: [previous_period, previous_10_publications, same_type, same_category]
+metricWindows: [24h, 7d, 28d, 90d, lifetime]
+minimumSampleSize: 3
+qualityThresholds: { high: 0.8, moderate: 0.6, low: 0.35 }
+baselineMethod: median
+insightDifferenceThreshold: 0.15
+reportCadence: { weeklyDay: 1, monthlyDay: 1 }
+socialPlatformMappings: { linkedin: linkedin, x: x, instagram: instagram, medium: medium }
+retention: { importMetadataDays: 90, syncErrorDays: 30 }
+importLimits: { maximumBytes: 5000000, maximumRows: 10000 }
+telegramSummaryCharacters: 1200
+dashboardEnabled: false
+assistedAnalysisPacketBytes: 100000

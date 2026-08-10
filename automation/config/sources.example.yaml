@@ -1,0 +1,59 @@
+sources:
+  - id: github-changelog
+    name: GitHub Changelog
+    type: rss
+    url: https://github.blog/changelog/feed/
+    authority: primary
+    topics: [software, developer-tools]
+    enabled: true
+    maxItems: 20
+    timeoutMs: 10000
+    language: en
+
+  - id: mozilla-hacks
+    name: Mozilla Hacks
+    type: rss
+    url: https://hacks.mozilla.org/feed/
+    authority: primary
+    topics: [software, web]
+    enabled: true
+    maxItems: 20
+    timeoutMs: 10000
+    language: en
+
+  - id: hacker-news
+    name: Hacker News
+    type: hacker-news
+    url: https://hacker-news.firebaseio.com/v0
+    authority: community
+    topics: [software, ai, computing]
+    enabled: true
+    maxItems: 20
+    timeoutMs: 8000
+    language: en
+    mode: top
+
+  # Disabled placeholders are intentionally non-production until their URLs are verified.
+  - id: future-ai-official
+    name: Future verified AI source
+    type: rss
+    url: https://example.com/ai-feed.xml
+    authority: primary
+    topics: [ai]
+    enabled: false
+
+  - id: future-design-official
+    name: Future verified design source
+    type: atom
+    url: https://example.com/design-feed.xml
+    authority: primary
+    topics: [design]
+    enabled: false
+
+  - id: future-gaming-official
+    name: Future verified gaming source
+    type: rss
+    url: https://example.com/gaming-feed.xml
+    authority: primary
+    topics: [gaming, game-development]
+    enabled: false

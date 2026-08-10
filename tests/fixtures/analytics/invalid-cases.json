@@ -1,0 +1,13 @@
+{
+  "complete": "article-metrics.csv",
+  "partial_provider_coverage": "publication_555555555555555555555555",
+  "duplicate_import": "reuse article-metrics.csv unchanged",
+  "invalid_negative_metric": { "search_clicks": -1 },
+  "unknown_url": "https://deep.example/unknown",
+  "personal_data_leak": {
+    "email": "visitor@example.com",
+    "ip_address": "192.0.2.9"
+  },
+  "medium_not_posted": true,
+  "missing_social_metrics": "publication_555555555555555555555555"
+}

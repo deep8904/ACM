@@ -1,0 +1,2 @@
+database/migrations/017_automation_control_plane.sql whitespace=-blank-at-eof
+database/migrations/018_direct_production_artifacts.sql whitespace=-blank-at-eof

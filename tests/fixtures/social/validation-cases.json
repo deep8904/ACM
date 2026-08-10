@@ -1,0 +1,30 @@
+{
+  "accepted": [
+    "valid_linkedin",
+    "valid_x_post",
+    "valid_x_thread",
+    "valid_instagram_carousel",
+    "valid_medium_adaptation",
+    "valid_schedule",
+    "valid_manual_post_url",
+    "duplicate_import"
+  ],
+  "blocked": [
+    "overlong_linkedin",
+    "overlong_x",
+    "duplicate_thread_posts",
+    "too_many_slides",
+    "missing_alt_text",
+    "misleading_product_visual",
+    "duplicate_medium_body",
+    "unsupported_claim",
+    "removed_uncertainty",
+    "invalid_canonical_url",
+    "private_url",
+    "sensitive_query_parameter",
+    "stale_publication_hash",
+    "past_schedule",
+    "tampered_callback",
+    "stale_callback"
+  ]
+}

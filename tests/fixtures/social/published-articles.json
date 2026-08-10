@@ -1,0 +1,24 @@
+{
+  "cases": [
+    {
+      "id": "ai-software",
+      "kind": "published_ai_software",
+      "expected": "eligible"
+    },
+    {
+      "id": "hardware-buying",
+      "kind": "published_hardware_buying_analysis",
+      "expected": "eligible_with_disclosure"
+    },
+    {
+      "id": "game-development",
+      "kind": "published_game_development",
+      "expected": "eligible"
+    },
+    {
+      "id": "source-review",
+      "kind": "source_based_review",
+      "expected": "non_hands_on_disclosure_required"
+    }
+  ]
+}

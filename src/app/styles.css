@@ -1,0 +1,141 @@
+:root {
+  color-scheme: light dark;
+  --background: #0b0d10;
+  --surface: #14181d;
+  --text: #f5f7f9;
+  --muted: #a8b0b9;
+  --accent: #4c7dff;
+  --line: #2a3038;
+  font-family:
+    Inter,
+    Geist,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+}
+
+main {
+  width: min(1120px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 18vh 0 12vh;
+}
+
+.hero {
+  max-width: 880px;
+  padding-bottom: clamp(80px, 14vw, 160px);
+}
+
+.eyebrow {
+  margin: 0 0 20px;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  max-width: 800px;
+  margin-bottom: 28px;
+  font-size: clamp(3.4rem, 9vw, 7.8rem);
+  line-height: 0.9;
+  letter-spacing: -0.065em;
+}
+
+.lede {
+  max-width: 720px;
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: clamp(1.15rem, 2.4vw, 1.55rem);
+  line-height: 1.55;
+}
+
+.gates {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  gap: clamp(40px, 8vw, 110px);
+  padding-top: 40px;
+  border-top: 1px solid var(--line);
+}
+
+h2 {
+  max-width: 390px;
+  margin-bottom: 0;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+ol {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+li {
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+li span {
+  display: block;
+  margin-bottom: 34px;
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+}
+
+h3 {
+  margin-bottom: 10px;
+  font-size: 1.35rem;
+}
+
+li p {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+@media (max-width: 720px) {
+  main {
+    padding-top: 12vh;
+  }
+
+  .gates {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --background: #f5f7f9;
+    --surface: #ffffff;
+    --text: #0b0d10;
+    --muted: #68717c;
+    --line: #dce1e6;
+  }
+}

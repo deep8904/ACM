@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^socialplan_[a-f0-9]{24}$"
+    },
+    "publicationId": {
+      "type": "string",
+      "pattern": "^publication_[a-f0-9]{24}$"
+    },
+    "articleContentHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "articleTitle": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "canonicalUrl": {
+      "type": "string",
+      "format": "uri"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "selecting",
+        "preparing",
+        "ready_for_confirmation",
+        "approved",
+        "manual_ready",
+        "completed",
+        "blocked",
+        "failed",
+        "cancelled",
+        "skipped"
+      ]
+    },
+    "selectedPlatforms": {
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "linkedin",
+          "x",
+          "instagram",
+          "medium"
+        ]
+      }
+    },
+    "platformStates": {
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "linkedin",
+              "x",
+              "instagram",
+              "medium"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "selected",
+              "prepared",
+              "approved",
+              "manual_ready",
+              "posted",
+              "blocked",
+              "failed"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "capabilities": {
+            "type": "object",
+            "properties": {
+              "canAutoPost": {
+                "type": "boolean"
+              },
+              "supportsImages": {
+                "type": "boolean"
+              },
+              "supportsCarousel": {
+                "type": "boolean"
+              },
+              "supportsThreads": {
+                "type": "boolean"
+              },
+              "supportsDrafts": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "canAutoPost",
+              "supportsImages",
+              "supportsCarousel",
+              "supportsThreads",
+              "supportsDrafts"
+            ],
+            "additionalProperties": false
+          },
+          "itemIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^socialitem_[a-f0-9]{24}$"
+            }
+          },
+          "assetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^socialasset_[a-f0-9]{24}$"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          "error": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "postUrl": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "required": [
+          "platform",
+          "state",
+          "provider",
+          "capabilities",
+          "itemIds",
+          "assetIds",
+          "warnings"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "packageId": {
+      "type": "string",
+      "pattern": "^socialpackage_[a-f0-9]{24}$"
+    },
+    "packageVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "selectionRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "confirmedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    }
+  },
+  "required": [
+    "id",
+    "publicationId",
+    "articleContentHash",
+    "articleTitle",
+    "canonicalUrl",
+    "status",
+    "selectedPlatforms",
+    "platformStates",
+    "selectionRevision",
+    "version",
+    "createdAt",
+    "updatedAt"
+  ],
+  "additionalProperties": false
+}

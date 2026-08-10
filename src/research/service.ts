@@ -1,0 +1,911 @@
+import { createHash } from "node:crypto";
+import type { SourceItem } from "../discovery/models/source-item";
+import { normalizeUrl } from "../discovery/normalize-url";
+import type { TopicCatalog } from "../telegram/interfaces";
+import type { TopicApprovedEvent, TopicQueueItem } from "../telegram/models";
+import { analyze, publisherOwnershipGroup } from "./analyze";
+import type { ResearchConfig } from "./config";
+import { contentHash, extractDocument } from "./extract";
+import { GitHubJsonContentExtractor } from "./github-adapter";
+import type {
+  ApprovedEventRepository,
+  ResearchJobRepository,
+  ResearchPacketRepository,
+  ResearchCacheRepository,
+  ResearchSourceRepository,
+  ResearchSourceExtensionRepository,
+} from "./interfaces";
+import {
+  researchPacketSchema,
+  researchSourceSchema,
+  type ResearchJob,
+  type ResearchPacket,
+  type ResearchSource,
+} from "./models";
+import { z } from "zod";
+import { retrieveSafely, robotsAllows, type ResearchFetch } from "./retrieve";
+import { stable } from "./storage";
+import type { DnsLookup } from "../telegram/interfaces";
+
+export class ResearchService {
+  constructor(
+    private deps: {
+      events: ApprovedEventRepository;
+      jobs: ResearchJobRepository;
+      sources: ResearchSourceRepository;
+      packets: ResearchPacketRepository;
+      cache?: ResearchCacheRepository;
+      extensions?: ResearchSourceExtensionRepository;
+      catalog: TopicCatalog;
+      config: ResearchConfig;
+      fetch?: ResearchFetch;
+      lookup?: DnsLookup;
+      now?: () => Date;
+      workerId?: string;
+    },
+  ) {}
+  async next() {
+    const event = await this.deps.events.next();
+    return event ? this.process(event.id) : undefined;
+  }
+  async process(eventId: string): Promise<ResearchPacket | undefined> {
+    return this.run(eventId);
+  }
+  async retry(eventId: string): Promise<ResearchPacket | undefined> {
+    const job = await this.deps.jobs.getByEvent(eventId);
+    if (!job) throw new Error("Research job not found");
+    if (job.status === "failed") return this.run(eventId, ["failed"]);
+    if (job.status !== "awaiting_assistance")
+      throw new Error("Only failed or retrieval-blocked jobs can be retried");
+    const packet = await this.deps.packets.get(job.topicId, job.packetVersion);
+    if (
+      !packet?.sourceIndex.some(({ extractionStatus }) =>
+        ["blocked", "failed", "unsupported"].includes(extractionStatus),
+      )
+    )
+      throw new Error("Only failed or retrieval-blocked jobs can be retried");
+    return this.run(eventId, ["awaiting_assistance"]);
+  }
+  async extendSource(input: ResearchSourceExtensionInput) {
+    const request = researchSourceExtensionInputSchema.parse(input);
+    const canonicalUrl = normalizeUrl(request.url);
+    const base = await this.deps.packets.get(request.topicId);
+    if (!base) throw new Error("Research packet not found");
+    const event = await this.deps.events.get(base.approvedEventId);
+    const queue = await this.deps.events.queue(request.topicId);
+    if (
+      !event ||
+      event.status !== "ready" ||
+      event.topicId !== request.topicId ||
+      !queue ||
+      queue.approvalStatus !== "approved" ||
+      queue.researchReadiness !== "ready_for_research" ||
+      queue.candidateId !== base.candidateId ||
+      (await this.deps.events.isCancelled(event))
+    )
+      throw new Error("Topic approval gate is not active");
+    if (!(await this.deps.events.isConsumed(event.id)))
+      throw new Error("Source extension is only supported for consumed topics");
+    validateExtensionClassification(base, canonicalUrl, request);
+    const duplicate = base.sourceIndex.find((source) =>
+      [source.originalUrl, source.canonicalUrl, source.finalUrl].some(
+        (url) => normalizeUrl(url) === canonicalUrl,
+      ),
+    );
+    if (duplicate) {
+      if (sameExtensionClassification(duplicate, request)) return base;
+      throw new Error(
+        "Source URL already exists with different classification metadata",
+      );
+    }
+    if (base.sourceIndex.length >= this.deps.config.maxSources)
+      throw new Error("Research packet has reached the configured source cap");
+    if (!this.deps.extensions)
+      throw new Error("Source extension repository is not configured");
+
+    const now = (this.deps.now ?? (() => new Date()))().toISOString();
+    const item = extensionItem(canonicalUrl, request, now);
+    const artifact = await this.collect(event, item, request, false);
+    const sources = limitExcerpts(
+      [...base.sourceIndex, artifact.source],
+      this.deps.config.totalExcerptChars,
+    );
+    const deterministic = analyze(request.topicId, sources, now, {
+      ...this.deps.config,
+      mode: "deterministic",
+    });
+    const inheritedClaimCount = [
+      ...base.facts,
+      ...base.interpretations,
+      ...base.predictions,
+      ...base.communityObservations,
+    ].filter((claim) =>
+      ["supported", "partially_supported"].includes(claim.status),
+    ).length;
+    const components = {
+      ...deterministic.sufficiency.components,
+      claimCoverage: Math.max(
+        base.researchSufficiency.components.claimCoverage,
+        Math.min(20, inheritedClaimCount * 4),
+      ),
+    };
+    const penalties = {
+      conflicts: Math.max(
+        base.researchSufficiency.penalties.conflicts,
+        deterministic.sufficiency.penalties.conflicts,
+      ),
+      // Evidence extension never removes an unknowns penalty. A later assisted
+      // import may resolve unknowns only by citing excerpts from this packet.
+      unknowns: base.researchSufficiency.penalties.unknowns,
+      weakSources: deterministic.sufficiency.penalties.weakSources,
+    };
+    const score = Math.max(
+      0,
+      Math.min(
+        100,
+        Object.values(components).reduce((sum, value) => sum + value, 0) -
+          Object.values(penalties).reduce((sum, value) => sum + value, 0),
+      ),
+    );
+    const extensionHash = createHash("sha256")
+      .update(
+        JSON.stringify({
+          topicId: request.topicId,
+          canonicalUrl,
+          authority: request.authority,
+          sourceType: request.sourceType,
+          publisher: request.publisher,
+          publisherOwner: request.publisherOwner.toLowerCase(),
+        }),
+      )
+      .digest("hex");
+    const newClaims = deterministic.claims.filter(
+      (claim) =>
+        claim.sourceIds.includes(artifact.source.id) &&
+        ![
+          ...base.facts,
+          ...base.interpretations,
+          ...base.predictions,
+          ...base.communityObservations,
+        ].some((existing) => existing.id === claim.id),
+    );
+    const next = researchPacketSchema.parse({
+      ...base,
+      version: base.version + 1,
+      updatedAt: now,
+      status:
+        artifact.source.extractionStatus === "extracted"
+          ? "awaiting_assisted_synthesis"
+          : "insufficient",
+      researchMode: "deterministic",
+      facts: [...base.facts, ...newClaims],
+      timeline: uniqueById([...base.timeline, ...deterministic.timeline]),
+      conflicts: uniqueById([...base.conflicts, ...deterministic.conflicts]),
+      sourceIndex: sources,
+      primarySourceIds: sources
+        .filter((source) => source.isPrimary)
+        .map((source) => source.id),
+      sufficient: false,
+      blockingReasons: uniqueStrings([
+        ...base.blockingReasons,
+        ...deterministic.blockingReasons,
+      ]),
+      warnings: uniqueStrings([...base.warnings, ...artifact.source.warnings]),
+      contentHashes: uniqueStrings(sources.map((source) => source.contentHash)),
+      researchConfidence: Math.min(1, score / 100),
+      researchSufficiency: {
+        score,
+        threshold: base.researchSufficiency.threshold,
+        components,
+        penalties,
+        explanation: [
+          `${sources.filter((source) => source.isPrimary).length} primary source(s)`,
+          `${new Set(sources.map(publisherOwnershipGroup)).size} publisher ownership group(s)`,
+          `${inheritedClaimCount + newClaims.length} supported claim(s) available for synthesis`,
+          `Extended immutable packet v${base.version} with one validated source`,
+        ],
+      },
+      provenance: {
+        deterministic: true,
+        promptVersion: base.provenance.promptVersion,
+        sourcePacketVersion: base.version,
+        extensionHash,
+        extension: {
+          kind: "source_extension",
+          canonicalUrl,
+          sourceId: artifact.source.id,
+          authority: request.authority,
+          sourceType: request.sourceType,
+          publisher: request.publisher,
+          publisherOwner: request.publisherOwner.toLowerCase(),
+        },
+      },
+    });
+    return this.deps.extensions.persist(
+      base,
+      next,
+      artifact.source,
+      artifact.text,
+    );
+  }
+  private async run(
+    eventId: string,
+    recoverableStatuses?: readonly ResearchJob["status"][],
+  ): Promise<ResearchPacket | undefined> {
+    const event = await this.deps.events.get(eventId);
+    if (!event || (await this.deps.events.isConsumed(eventId)))
+      return undefined;
+    await this.guard(event);
+    const now = (this.deps.now ?? (() => new Date()))().toISOString();
+    let job = await this.deps.jobs.claim(
+      event.id,
+      event.topicId,
+      this.deps.workerId ?? `worker-${process.pid}`,
+      now,
+      this.deps.config.abandonedClaimMinutes * 60_000,
+      recoverableStatuses,
+    );
+    if (!job) return undefined;
+    try {
+      job = await this.stage(job, "resolving");
+      const queue = await this.deps.events.queue(event.topicId);
+      if (!queue) throw new Error("Approved queue snapshot is missing");
+      const items = await this.resolve(event, queue);
+      await this.guard(event);
+      job = await this.stage(job, "retrieving");
+      const sources: ResearchSource[] = [];
+      for (const item of capSources(
+        items,
+        this.deps.config.maxSources,
+        this.deps.config.maxPerPublisherGroup,
+        this.deps.config,
+      )) {
+        await this.guard(event);
+        const source = await this.collect(event, item);
+        sources.push(source);
+      }
+      const packetSources = limitExcerpts(
+        sources,
+        this.deps.config.totalExcerptChars,
+      );
+      job = await this.stage(job, "analyzing");
+      const result = analyze(
+        event.topicId,
+        packetSources,
+        now,
+        this.deps.config,
+      );
+      const version = await this.deps.packets.nextVersion(event.topicId);
+      const assessmentSufficient =
+        result.sufficiency.score >= this.deps.config.sufficiencyThreshold &&
+        result.blockingReasons.length === 0;
+      const sufficient =
+        this.deps.config.mode === "deterministic" && assessmentSufficient;
+      const packet = researchPacketSchema.parse({
+        id: stable("packet", event.id),
+        version,
+        topicId: event.topicId,
+        candidateId: event.candidateId,
+        runId: event.runId,
+        approvedEventId: event.id,
+        origin: event.origin,
+        approvedTitle: title(queue),
+        approvedAngle: event.approvedAngle,
+        editorialNotes: event.editorialNotes,
+        createdAt: now,
+        updatedAt: now,
+        status:
+          this.deps.config.mode === "assisted"
+            ? "awaiting_assisted_synthesis"
+            : sufficient
+              ? "ready"
+              : "insufficient",
+        researchMode: "deterministic",
+        scope: ["approved topic", "approved angle", "source-backed facts only"],
+        executiveSummary: packetSources
+          .map((x) => x.summary)
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(" "),
+        timeline: result.timeline,
+        facts: result.claims.filter(
+          (x) => x.claimType === "fact" || x.claimType === "specification",
+        ),
+        interpretations: [],
+        predictions: [],
+        communityObservations: result.claims.filter(
+          (x) => x.claimType === "community_observation",
+        ),
+        technicalDetails: result.claims
+          .filter((x) => x.claimType === "specification")
+          .map((x) => x.statement),
+        productSpecifications: result.claims
+          .filter((x) => x.claimType === "specification")
+          .map((x) => ({
+            name: "Mechanically extracted specification",
+            value: x.statement,
+            sourceIds: x.sourceIds,
+          })),
+        counterpoints: [],
+        conflicts: result.conflicts,
+        unknowns: [
+          ...(result.claims.length
+            ? []
+            : ["Supported factual detail is still required"]),
+          ...packetSources
+            .filter((x) => !x.publishedAt)
+            .map((x) => `Publication date is unknown for source ${x.id}`),
+        ],
+        sourceIndex: packetSources,
+        primarySourceIds: packetSources
+          .filter((x) => x.isPrimary)
+          .map((x) => x.id),
+        recommendedThesis: event.approvedAngle,
+        recommendedArticleType:
+          event.origin === "ranked" ? "news_analysis" : "unknown",
+        recommendedStructure: [
+          "Verified facts",
+          "Timeline",
+          "Technical details",
+          "Counterpoints and unknowns",
+        ],
+        researchConfidence: Math.min(1, result.sufficiency.score / 100),
+        researchSufficiency: result.sufficiency,
+        sufficient,
+        blockingReasons: result.blockingReasons,
+        warnings: packetSources.flatMap((x) => x.warnings),
+        contentHashes: [...new Set(packetSources.map((x) => x.contentHash))],
+        provenance: {
+          deterministic: true,
+          promptVersion: "research-synthesis-v1",
+        },
+      });
+      await this.guard(event);
+      job = await this.stage(job, "persisting");
+      await this.deps.packets.save(packet);
+      if (packet.status === "ready" || packet.status === "insufficient")
+        await this.deps.events.consume(
+          event.id,
+          packet.id,
+          packet.version,
+          now,
+        );
+      job = {
+        ...job,
+        status:
+          packet.status === "awaiting_assisted_synthesis"
+            ? "awaiting_assistance"
+            : "completed",
+        packetId: packet.id,
+        packetVersion: packet.version,
+        completedAt: now,
+        heartbeatAt: now,
+        version: job.version + 1,
+      };
+      await this.deps.jobs.save(job);
+      return packet;
+    } catch (error) {
+      const at = (this.deps.now ?? (() => new Date()))().toISOString();
+      const cancelled =
+        error instanceof Error &&
+        error.message.includes("cancelled or topic superseded");
+      await this.deps.jobs.save({
+        ...job,
+        status: cancelled ? "cancelled" : "failed",
+        heartbeatAt: at,
+        errors: [
+          ...job.errors,
+          error instanceof Error ? error.message : String(error),
+        ],
+        version: job.version + 1,
+      });
+      throw error;
+    }
+  }
+  private async collect(
+    event: TopicApprovedEvent,
+    item: SourceItem,
+  ): Promise<ResearchSource>;
+  private async collect(
+    event: TopicApprovedEvent,
+    item: SourceItem,
+    metadata: ResearchSourceExtensionInput,
+    persist: false,
+  ): Promise<{ source: ResearchSource; text: string }>;
+  private async collect(
+    event: TopicApprovedEvent,
+    item: SourceItem,
+    metadata?: ResearchSourceExtensionInput,
+    persist = true,
+  ): Promise<ResearchSource | { source: ResearchSource; text: string }> {
+    const cached = await this.deps.cache?.get(item.canonicalUrl);
+    const currentTime = (this.deps.now ?? (() => new Date()))();
+    if (
+      cached &&
+      currentTime.getTime() - Date.parse(cached.source.retrievedAt) <=
+        this.deps.config.cacheTtlHours * 3_600_000
+    ) {
+      const source = researchSourceSchema.parse({
+        ...cached.source,
+        topicId: event.topicId,
+        id: stable("source", `${event.topicId}:${cached.source.canonicalUrl}`),
+        publisher: metadata?.publisher ?? cached.source.publisher,
+        publisherGroup:
+          metadata?.publisherOwner.toLowerCase() ??
+          cached.source.publisherGroup,
+        publisherOwner:
+          metadata?.publisherOwner.toLowerCase() ??
+          cached.source.publisherOwner,
+        sourceType: metadata?.sourceType ?? cached.source.sourceType,
+        authority: metadata?.authority ?? cached.source.authority,
+        isPrimary:
+          metadata?.authority === undefined
+            ? cached.source.isPrimary
+            : metadata.authority === "primary",
+        extractionMethod: "cache",
+        retrievedAt: (this.deps.now ?? (() => new Date()))().toISOString(),
+        warnings: [...cached.source.warnings, "Reused canonical URL cache"],
+      });
+      if (persist) await this.deps.sources.save(source, cached.text);
+      return persist ? source : { source, text: cached.text };
+    }
+    const target = new URL(item.canonicalUrl);
+    let robotsWarning: string | undefined;
+    try {
+      const cachedRobots = await this.deps.cache?.getRobots(target.hostname);
+      let robotsBody =
+        cachedRobots &&
+        currentTime.getTime() - Date.parse(cachedRobots.fetchedAt) <=
+          this.deps.config.robotsCacheTtlHours * 3_600_000
+          ? cachedRobots.body
+          : undefined;
+      if (robotsBody === undefined) {
+        const robots = await retrieveSafely(
+          `${target.origin}/robots.txt`,
+          {
+            ...this.deps.config,
+            maxBytes: Math.min(this.deps.config.maxBytes, 256_000),
+            maxRedirects: 1,
+          },
+          this.deps.fetch,
+          this.deps.lookup,
+        );
+        robotsBody = robots.body;
+        await this.deps.cache?.putRobots(
+          target.hostname,
+          robotsBody,
+          currentTime.toISOString(),
+        );
+      }
+      if (!robotsAllows(robotsBody, target.pathname)) {
+        const source = this.metadataSource(
+          event,
+          item,
+          "Blocked by robots.txt",
+          metadata,
+        );
+        if (persist) await this.deps.sources.save(source, "");
+        return persist ? source : { source, text: "" };
+      }
+    } catch {
+      robotsWarning =
+        "robots.txt unavailable; conservative direct retrieval used";
+    }
+    let fetched;
+    try {
+      fetched = await retrieveSafely(
+        item.canonicalUrl,
+        this.deps.config,
+        this.deps.fetch,
+        this.deps.lookup,
+      );
+    } catch (error) {
+      const source = this.metadataSource(
+        event,
+        item,
+        `Retrieval failed: ${error instanceof Error ? error.message : "unknown error"}`,
+        metadata,
+      );
+      if (persist) await this.deps.sources.save(source, "");
+      return persist ? source : { source, text: "" };
+    }
+    const extracted =
+      new URL(fetched.finalUrl).hostname === "api.github.com" &&
+      fetched.contentType.includes("json")
+        ? new GitHubJsonContentExtractor().extract(fetched.body, item.title)
+        : extractDocument(fetched.body, fetched.contentType, item.title);
+    const hash = contentHash(extracted.text || fetched.body);
+    const metrics = {
+      wordCount: extracted.text ? extracted.text.split(/\s+/).length : 0,
+      paragraphCount: extracted.excerpts.length,
+      headingCount: extracted.headings.length,
+      metadataFields:
+        Object.values(extracted.metadata).filter(Boolean).length +
+        Number(Boolean(extracted.author)) +
+        Number(Boolean(extracted.publishedAt)),
+    };
+    const extractionQuality = fetched.contentType.includes("pdf")
+      ? "metadata_only"
+      : metrics.wordCount >= 80 && metrics.paragraphCount >= 3
+        ? "high"
+        : metrics.wordCount >= 10 && metrics.paragraphCount >= 1
+          ? "medium"
+          : extracted.text
+            ? "low"
+            : "failed";
+    const source = researchSourceSchema.parse({
+      id: stable(
+        "source",
+        `${event.topicId}:${normalizeUrl(fetched.finalUrl)}`,
+      ),
+      topicId: event.topicId,
+      sourceItemId: item.id,
+      originalUrl: scrub(item.url),
+      canonicalUrl: scrub(item.canonicalUrl),
+      finalUrl: scrub(fetched.finalUrl),
+      title: extracted.title,
+      publisher: metadata?.publisher ?? item.sourceName,
+      publisherGroup:
+        metadata?.publisherOwner.toLowerCase() ??
+        new URL(item.canonicalUrl).hostname.replace(/^www\./, ""),
+      publisherOwner: metadata?.publisherOwner.toLowerCase(),
+      sourceType: metadata?.sourceType ?? inferType(item),
+      authority: item.authority,
+      isPrimary: item.authority === "primary",
+      author: extracted.author ?? item.author,
+      publishedAt: extracted.publishedAt ?? item.publishedAt,
+      retrievedAt: (this.deps.now ?? (() => new Date()))().toISOString(),
+      contentType: fetched.contentType,
+      language: item.language,
+      contentHash: hash,
+      extractionMethod: fetched.contentType.includes("pdf")
+        ? "metadata"
+        : fetched.contentType.includes("html")
+          ? "html"
+          : fetched.contentType.includes("json")
+            ? "json"
+            : fetched.contentType.includes("xml")
+              ? "xml"
+              : "text",
+      extractionStatus: fetched.contentType.includes("pdf")
+        ? "metadata_only"
+        : extracted.text
+          ? "extracted"
+          : "failed",
+      extractionQuality,
+      qualityMetrics: metrics,
+      wordCount: metrics.wordCount,
+      summary: [
+        "[Mechanically extracted; not an editorial synthesis]",
+        item.summary,
+        extracted.headings.slice(0, 2).join("; "),
+        extracted.excerpts[0],
+      ]
+        .filter(Boolean)
+        .join(" — ")
+        .slice(0, 1200),
+      selectedExcerpts: extracted.excerpts.map((text, i) => ({
+        id: `excerpt_${hash.slice(0, 16)}_${i + 1}`,
+        text: text.slice(0, this.deps.config.excerptChars),
+        locator: `extracted paragraph ${i + 1}`,
+        purpose: "factual support",
+      })),
+      licenseNotes:
+        "Stored for private research; excerpts are deliberately limited.",
+      warnings: [
+        ...extracted.warnings,
+        ...(robotsWarning ? [robotsWarning] : []),
+      ],
+      rawMetadata: {
+        selectionReason:
+          item.authority === "primary"
+            ? "direct primary source"
+            : item.authority === "community"
+              ? "limited community context"
+              : "independent corroboration",
+        redirects: fetched.redirects.length - 1,
+        ...extracted.metadata,
+      },
+    });
+    if (persist) {
+      await this.deps.sources.save(source, extracted.text);
+      await this.deps.cache?.put(source, extracted.text);
+    }
+    return persist ? source : { source, text: extracted.text };
+  }
+
+  private metadataSource(
+    event: TopicApprovedEvent,
+    item: SourceItem,
+    warning: string,
+    metadata?: ResearchSourceExtensionInput,
+  ): ResearchSource {
+    const emptyHash = contentHash(`${item.title}\n${item.summary}`);
+    return researchSourceSchema.parse({
+      id: stable("source", `${event.topicId}:${item.canonicalUrl}`),
+      topicId: event.topicId,
+      sourceItemId: item.id,
+      originalUrl: scrub(item.url),
+      canonicalUrl: scrub(item.canonicalUrl),
+      finalUrl: scrub(item.canonicalUrl),
+      title: item.title,
+      publisher: metadata?.publisher ?? item.sourceName,
+      publisherGroup:
+        metadata?.publisherOwner.toLowerCase() ??
+        new URL(item.canonicalUrl).hostname.replace(/^www\./, ""),
+      publisherOwner: metadata?.publisherOwner.toLowerCase(),
+      sourceType: metadata?.sourceType ?? inferType(item),
+      authority: item.authority,
+      isPrimary: item.authority === "primary",
+      author: item.author,
+      publishedAt: item.publishedAt,
+      retrievedAt: (this.deps.now ?? (() => new Date()))().toISOString(),
+      contentType: "",
+      language: item.language,
+      contentHash: emptyHash,
+      extractionMethod: "metadata",
+      extractionStatus: "blocked",
+      extractionQuality: "metadata_only",
+      qualityMetrics: {
+        wordCount: 0,
+        paragraphCount: 0,
+        headingCount: 0,
+        metadataFields:
+          Number(Boolean(item.publishedAt)) + Number(Boolean(item.author)),
+      },
+      wordCount: 0,
+      summary: item.summary,
+      selectedExcerpts: [],
+      licenseNotes: "Metadata only; page content was not stored.",
+      warnings: [warning],
+      rawMetadata: {},
+    });
+  }
+  private async resolve(event: TopicApprovedEvent, queue: TopicQueueItem) {
+    const editorialItems = event.editorialNotes.flatMap((note) =>
+      [...note.matchAll(/https?:\/\/[^\s<>"']+/g)].map((match) =>
+        manualItem(match[0].replace(/[),.;]+$/, ""), "Editorial-note source"),
+      ),
+    );
+    if (queue.candidateSnapshot.kind === "manual_topic")
+      return uniqueItems(editorialItems);
+    if (queue.candidateSnapshot.kind === "manual_url") {
+      const url = queue.candidateSnapshot.candidate.submittedUrl;
+      if (!url) return [];
+      return uniqueItems([
+        manualItem(url, queue.candidateSnapshot.candidate.title),
+        ...editorialItems,
+      ]);
+    }
+    const run = await this.deps.catalog.getRun(event.runId);
+    const ids = new Set(event.sourceItemIds);
+    return uniqueItems([
+      ...run.sourceItems
+        .filter((x) => ids.has(x.id))
+        .sort(
+          (a, b) =>
+            Number(b.authority === "primary") -
+              Number(a.authority === "primary") ||
+            a.sourceId.localeCompare(b.sourceId),
+        ),
+      ...editorialItems,
+    ]);
+  }
+  private async guard(event: TopicApprovedEvent) {
+    if (await this.deps.events.isCancelled(event))
+      throw new Error("Research cancelled or topic superseded");
+  }
+  private async stage(job: ResearchJob, status: ResearchJob["status"]) {
+    const next = {
+      ...job,
+      status,
+      heartbeatAt: (this.deps.now ?? (() => new Date()))().toISOString(),
+      version: job.version + 1,
+    };
+    await this.deps.jobs.save(next);
+    return next;
+  }
+}
+function title(q: TopicQueueItem) {
+  return q.candidateSnapshot.candidate.title;
+}
+function inferType(item: SourceItem): ResearchSource["sourceType"] {
+  if (item.authority === "community") return "community_discussion";
+  if (item.authority === "primary")
+    return /release/i.test(item.title)
+      ? "release_notes"
+      : "official_announcement";
+  return "technical_reporting";
+}
+function scrub(value: string) {
+  const url = new URL(value);
+  for (const key of [...url.searchParams.keys()])
+    if (/token|key|auth|secret|signature|session/i.test(key))
+      url.searchParams.delete(key);
+  return normalizeUrl(url.toString());
+}
+function manualItem(url: string, name: string): SourceItem {
+  const canonicalUrl = normalizeUrl(url);
+  return {
+    id: stable("item", canonicalUrl),
+    sourceId: "manual",
+    sourceName: new URL(url).hostname,
+    sourceType: "rss",
+    authority: "independent",
+    title: name,
+    url,
+    canonicalUrl,
+    summary: "",
+    retrievedAt: new Date(0).toISOString(),
+    categories: [],
+    tags: [],
+    language: "en",
+    rawMetadata: {},
+    contentHash: createHash("sha256").update(name).digest("hex"),
+  };
+}
+
+function capSources(
+  items: SourceItem[],
+  max: number,
+  perGroup: number,
+  config: ResearchConfig,
+) {
+  const counts = new Map<string, number>();
+  const authorityCounts = new Map<string, number>();
+  const selected: SourceItem[] = [];
+  for (const item of items) {
+    const group = new URL(item.canonicalUrl).hostname.replace(/^www\./, "");
+    const count = counts.get(group) ?? 0;
+    if (count >= perGroup) continue;
+    const limit =
+      item.authority === "primary"
+        ? config.maxPrimarySources
+        : item.authority === "community"
+          ? config.maxCommunitySources
+          : config.maxIndependentSources;
+    const authorityCount = authorityCounts.get(item.authority) ?? 0;
+    if (authorityCount >= limit) continue;
+    counts.set(group, count + 1);
+    authorityCounts.set(item.authority, authorityCount + 1);
+    selected.push(item);
+    if (selected.length >= max) break;
+  }
+  return selected;
+}
+
+function uniqueItems(items: SourceItem[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.canonicalUrl)) return false;
+    seen.add(item.canonicalUrl);
+    return true;
+  });
+}
+
+function limitExcerpts(sources: ResearchSource[], totalCharacters: number) {
+  let remaining = totalCharacters;
+  return sources.map((source) => ({
+    ...source,
+    selectedExcerpts: source.selectedExcerpts.flatMap((excerpt) => {
+      if (remaining <= 0) return [];
+      const text = excerpt.text.slice(0, remaining);
+      remaining -= text.length;
+      return text ? [{ ...excerpt, text }] : [];
+    }),
+  }));
+}
+
+export const researchSourceExtensionInputSchema = z
+  .object({
+    topicId: z.string().min(1),
+    url: z.string().url(),
+    authority: researchSourceSchema.shape.authority,
+    sourceType: researchSourceSchema.shape.sourceType,
+    publisher: z.string().trim().min(1).max(200),
+    publisherOwner: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/),
+  })
+  .strict();
+export type ResearchSourceExtensionInput = z.infer<
+  typeof researchSourceExtensionInputSchema
+>;
+
+const primarySourceTypes = new Set<ResearchSource["sourceType"]>([
+  "official_announcement",
+  "documentation",
+  "release_notes",
+  "repository",
+  "product_page",
+  "support_document",
+  "regulatory_filing",
+  "research_paper",
+]);
+
+function validateExtensionClassification(
+  base: ResearchPacket,
+  canonicalUrl: string,
+  request: ResearchSourceExtensionInput,
+) {
+  const url = new URL(canonicalUrl);
+  if (url.protocol !== "https:")
+    throw new Error("Research source extensions require HTTPS URLs");
+  const owner = request.publisherOwner.toLowerCase();
+  if (!hostnameBelongsToOwner(url.hostname, owner))
+    throw new Error("Publisher ownership is not supported by the source URL");
+  if (
+    request.authority === "primary" &&
+    !primarySourceTypes.has(request.sourceType)
+  )
+    throw new Error("Primary authority is unsupported for this source type");
+  if (
+    request.authority === "independent" &&
+    base.sourceIndex
+      .filter((source) => source.authority === "primary")
+      .some((source) => publisherOwnershipGroup(source) === owner)
+  )
+    throw new Error(
+      "A source owned by the primary publisher cannot be classified independent",
+    );
+  if (
+    request.authority === "community" &&
+    request.sourceType !== "community_discussion"
+  )
+    throw new Error("Community authority requires community_discussion type");
+}
+
+function hostnameBelongsToOwner(hostname: string, owner: string) {
+  const host = hostname.toLowerCase().replace(/^www\./, "");
+  if (host === "github.blog") return owner === "github.com";
+  return host === owner || host.endsWith(`.${owner}`);
+}
+
+function sameExtensionClassification(
+  source: ResearchSource,
+  request: ResearchSourceExtensionInput,
+) {
+  return (
+    source.authority === request.authority &&
+    source.sourceType === request.sourceType &&
+    source.publisher === request.publisher &&
+    publisherOwnershipGroup(source) === request.publisherOwner.toLowerCase()
+  );
+}
+
+function extensionItem(
+  canonicalUrl: string,
+  request: ResearchSourceExtensionInput,
+  now: string,
+): SourceItem {
+  return {
+    id: stable("item", `source-extension:${canonicalUrl}`),
+    sourceId: "research-source-extension",
+    sourceName: request.publisher,
+    sourceType: "rss",
+    authority: request.authority,
+    title: `Research source: ${new URL(canonicalUrl).hostname}`,
+    url: canonicalUrl,
+    canonicalUrl,
+    summary: "",
+    retrievedAt: now,
+    categories: [],
+    tags: [],
+    language: "en",
+    rawMetadata: {
+      explicitSourceType: request.sourceType,
+      explicitPublisherOwner: request.publisherOwner,
+    },
+    contentHash: createHash("sha256").update(canonicalUrl).digest("hex"),
+  };
+}
+
+function uniqueById<T extends { id: string }>(values: T[]) {
+  return [...new Map(values.map((value) => [value.id, value])).values()];
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values)];
+}

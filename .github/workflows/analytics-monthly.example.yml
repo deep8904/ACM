@@ -1,0 +1,24 @@
+name: Analytics monthly example (disabled)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: analytics-monthly-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  report:
+    if: github.event.repository.fork == false && vars.ENABLE_ANALYTICS_WORKFLOW == 'true' && vars.STORAGE_BACKEND == 'postgres'
+    runs-on: ubuntu-latest
+    env:
+      STORAGE_BACKEND: postgres
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_SCHEMA: content_machine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run db:verify
+      - run: npm run production:readiness
+      - run: npm run analytics:report:monthly

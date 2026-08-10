@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "publicationId": {
+      "type": "string",
+      "pattern": "^publication_[a-f0-9]{24}$"
+    },
+    "packageId": {
+      "type": "string",
+      "pattern": "^socialpackage_[a-f0-9]{24}$"
+    },
+    "packageVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "platform": {
+      "type": "string",
+      "enum": [
+        "linkedin",
+        "x",
+        "instagram",
+        "medium"
+      ]
+    },
+    "platformItemId": {
+      "type": "string",
+      "pattern": "^socialitem_[a-f0-9]{24}$"
+    },
+    "postUrl": {
+      "type": "string",
+      "format": "uri"
+    },
+    "postedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "method": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "api"
+      ]
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "contentHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "verificationState": {
+      "type": "string",
+      "enum": [
+        "operator_confirmed",
+        "api_confirmed",
+        "unverified"
+      ]
+    }
+  },
+  "required": [
+    "publicationId",
+    "packageId",
+    "packageVersion",
+    "platform",
+    "platformItemId",
+    "postUrl",
+    "postedAt",
+    "method",
+    "contentHash",
+    "verificationState"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,6 @@
+record_type,publication_id,window_start,window_end,search_impressions,search_clicks,search_ctr,page_views,article_type,category,word_count,source_count,collected_at
+article,publication_111111111111111111111111,2026-06-01,2026-06-08,10000,1200,0.12,4200,technical_explainer,development,1800,6,2026-06-09T00:00:00Z
+article,publication_222222222222222222222222,2026-06-01,2026-06-08,25000,500,0.02,900,breaking_news,technology,900,4,2026-06-09T00:00:00Z
+article,publication_333333333333333333333333,2026-06-01,2026-06-29,6000,540,0.09,2100,buying_guide,gear,2400,8,2026-06-30T00:00:00Z
+article,publication_444444444444444444444444,2026-06-01,2026-06-08,4000,240,0.06,800,analysis,games,1300,5,2026-06-09T00:00:00Z
+article,publication_555555555555555555555555,2026-06-07,2026-06-09,,,,,technical_explainer,development,1100,3,2026-06-09T00:00:00Z

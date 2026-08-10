@@ -1,0 +1,4 @@
+{
+  "publicationCases": ["exact_approved_event", "scheduled_not_due", "scheduled_due", "unknown_citation", "private_source_url", "slug_collision", "duplicate_retry", "deployment_failure", "manual_verification", "consumption_once"],
+  "note": "Executable offline cases live in src/publication/__tests__. No article body or private metadata is stored here."
+}

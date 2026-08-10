@@ -1,0 +1,72 @@
+[
+  {
+    "update_id": 201,
+    "message": {
+      "message_id": 301,
+      "date": 1785000000,
+      "chat": { "id": 246810, "type": "private" },
+      "from": { "id": 135790, "is_bot": false },
+      "text": "/topics run_20260806_ranking_fixture"
+    }
+  },
+  {
+    "update_id": 202,
+    "message": {
+      "message_id": 302,
+      "date": 1785000000,
+      "chat": { "id": 246810, "type": "private" },
+      "from": { "id": 135790, "is_bot": false },
+      "text": "/approve 1"
+    }
+  },
+  {
+    "update_id": 203,
+    "message": {
+      "message_id": 303,
+      "date": 1785000000,
+      "chat": { "id": 246810, "type": "private" },
+      "from": { "id": 135790, "is_bot": false },
+      "text": "/reject 1"
+    }
+  },
+  {
+    "update_id": 204,
+    "message": {
+      "message_id": 304,
+      "date": 1785000000,
+      "chat": { "id": 246810, "type": "private" },
+      "from": { "id": 135790, "is_bot": false },
+      "text": "/add Offline replay custom topic"
+    }
+  },
+  {
+    "update_id": 205,
+    "message": {
+      "message_id": 305,
+      "date": 1785000000,
+      "chat": { "id": 246810, "type": "private" },
+      "from": { "id": 135790, "is_bot": false },
+      "text": "/link https://example.com/article?utm_source=replay&id=9"
+    }
+  },
+  {
+    "update_id": 206,
+    "message": {
+      "message_id": 306,
+      "date": 1785000000,
+      "chat": { "id": 246810, "type": "private" },
+      "from": { "id": 135790, "is_bot": false },
+      "text": "/queue all"
+    }
+  },
+  {
+    "update_id": 206,
+    "message": {
+      "message_id": 306,
+      "date": 1785000000,
+      "chat": { "id": 246810, "type": "private" },
+      "from": { "id": 135790, "is_bot": false },
+      "text": "/queue all"
+    }
+  }
+]

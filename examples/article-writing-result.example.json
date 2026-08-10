@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "1.0",
+  "topicId": "topic_example",
+  "researchPacketId": "packet_aaaaaaaaaaaaaaaaaaaaaaaa",
+  "researchPacketVersion": 1,
+  "articleType": "news_analysis",
+  "metadata": {
+    "title": "Widget Offline Mode Changes Developer Workflows",
+    "alternateTitles": [
+      "What Widget Offline Mode Means for Developers",
+      "Widget Adds Offline Work for Developers"
+    ],
+    "seoTitle": "Widget Offline Mode for Developers",
+    "socialHeadline": "Widget now works offline",
+    "slug": "widget-offline-mode-developer-workflows",
+    "description": "Widget's new offline mode changes how developers can work when a stable connection is unavailable.",
+    "excerpt": "A source-based analysis of Widget's offline mode and its practical limits.",
+    "category": "Development",
+    "tags": ["Widget", "offline"],
+    "author": "Deep",
+    "heroImage": null,
+    "heroAlt": "Abstract local and cloud workflow diagram",
+    "canonicalUrl": null,
+    "publishedAt": null,
+    "status": "draft",
+    "draft": true
+  },
+  "mdx": "Widget now supports offline work, according to its release notes. [source:source_aaaaaaaaaaaaaaaaaaaaaaaa]\n\n## What changed\n\nThe official release says Widget supports offline mode. [source:source_aaaaaaaaaaaaaaaaaaaaaaaa]\n\n## Practical impact\n\nDevelopers may keep working through unreliable connectivity.\n\n## Takeaway\n\nOffline mode improves resilience but does not replace connected collaboration.",
+  "plainTextSummary": "Widget's offline mode can make individual developer work more resilient, while connected collaboration remains a limitation.",
+  "headingOutline": [
+    { "level": 2, "text": "What changed" },
+    { "level": 2, "text": "Practical impact" },
+    { "level": 2, "text": "Takeaway" }
+  ],
+  "claimReferences": [
+    {
+      "id": "draftclaim_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "statement": "Widget supports offline mode.",
+      "claimType": "fact",
+      "researchClaimIds": ["claim_aaaaaaaaaaaaaaaaaaaaaaaa"],
+      "sourceIds": ["source_aaaaaaaaaaaaaaaaaaaaaaaa"],
+      "section": "What changed",
+      "supportStatus": "supported",
+      "notes": []
+    }
+  ],
+  "sourceIdsUsed": ["source_aaaaaaaaaaaaaaaaaaaaaaaa"],
+  "declaredAnalysisSections": ["Practical impact"],
+  "declaredOpinionSections": [],
+  "limitations": ["Collaboration may require connectivity."],
+  "heroImageBrief": {
+    "editorialPurpose": "Explain local versus connected work",
+    "subject": "A local workstation connected to a muted cloud",
+    "composition": "Editorial split composition",
+    "mood": "Practical and calm",
+    "background": "Neutral dark background",
+    "aspectRatio": "16:9",
+    "recommendation": "diagram",
+    "mustNotDepict": ["A fabricated product interface"],
+    "altTextDraft": "Diagram contrasting local offline work with connected collaboration",
+    "misinformationRisk": "Avoid implying every feature works offline."
+  },
+  "suggestedSeoMetadata": {
+    "keywords": ["Widget offline mode"],
+    "searchIntent": "Understand the release"
+  },
+  "writerNotes": [],
+  "unresolvedQuestions": []
+}

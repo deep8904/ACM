@@ -1,0 +1,16 @@
+{
+  "update_id": 12,
+  "message": {
+    "message_id": 112,
+    "date": 1785000000,
+    "chat": {
+      "id": -100246810,
+      "type": "supergroup"
+    },
+    "from": {
+      "id": 135790,
+      "is_bot": false
+    },
+    "text": "/queue"
+  }
+}

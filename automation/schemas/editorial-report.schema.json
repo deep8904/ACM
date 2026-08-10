@@ -1,0 +1,404 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^report_[a-f0-9]{24}$"
+    },
+    "reportType": {
+      "type": "string",
+      "enum": [
+        "weekly",
+        "monthly",
+        "quarterly",
+        "custom"
+      ]
+    },
+    "periodStart": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "periodEnd": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "publicationCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "socialPostCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "dataCoverage": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "enum": [
+            "high",
+            "moderate",
+            "low",
+            "insufficient"
+          ]
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "providerCoverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "dateCoverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "mappingConfidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metricStates": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "available",
+              "not_available",
+              "not_collected",
+              "not_supported",
+              "permission_denied"
+            ]
+          }
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "partialWindow": {
+          "type": "boolean"
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      },
+      "required": [
+        "label",
+        "score",
+        "providerCoverage",
+        "dateCoverage",
+        "mappingConfidence",
+        "metricStates",
+        "stale",
+        "partialWindow",
+        "conflicts",
+        "warnings"
+      ],
+      "additionalProperties": false
+    },
+    "topPerformers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "publicationId": {
+            "type": "string",
+            "pattern": "^publication_[a-f0-9]{24}$"
+          },
+          "title": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dataQuality": {
+            "type": "string",
+            "enum": [
+              "high",
+              "moderate",
+              "low",
+              "insufficient"
+            ]
+          }
+        },
+        "required": [
+          "publicationId",
+          "title",
+          "metric",
+          "value",
+          "dataQuality"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "underperformers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "publicationId": {
+            "type": "string",
+            "pattern": "^publication_[a-f0-9]{24}$"
+          },
+          "title": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dataQuality": {
+            "type": "string",
+            "enum": [
+              "high",
+              "moderate",
+              "low",
+              "insufficient"
+            ]
+          }
+        },
+        "required": [
+          "publicationId",
+          "title",
+          "metric",
+          "value",
+          "dataQuality"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "searchHighlights": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "socialHighlights": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "topicInsights": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "articleTypeInsights": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "distributionInsights": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "timingInsights": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "contentLengthInsights": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "workflowInsights": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "rankingFeedback": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "experiments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "hypothesis": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "metric": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "baseline": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "duration": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "minimumSampleSize": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "variablesHeldConstant": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          },
+          "stopCondition": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "ethicalConstraints": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          },
+          "status": {
+            "type": "string",
+            "const": "requires_manual_review"
+          }
+        },
+        "required": [
+          "hypothesis",
+          "metric",
+          "baseline",
+          "duration",
+          "minimumSampleSize",
+          "variablesHeldConstant",
+          "stopCondition",
+          "ethicalConstraints",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "dataLimitations": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "contentHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "reportType",
+    "periodStart",
+    "periodEnd",
+    "publicationCount",
+    "socialPostCount",
+    "dataCoverage",
+    "topPerformers",
+    "underperformers",
+    "searchHighlights",
+    "socialHighlights",
+    "topicInsights",
+    "articleTypeInsights",
+    "distributionInsights",
+    "timingInsights",
+    "contentLengthInsights",
+    "workflowInsights",
+    "rankingFeedback",
+    "recommendations",
+    "experiments",
+    "dataLimitations",
+    "generatedAt",
+    "contentHash",
+    "version"
+  ],
+  "additionalProperties": false
+}

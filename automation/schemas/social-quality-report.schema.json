@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "packageId": {
+      "type": "string",
+      "pattern": "^socialpackage_[a-f0-9]{24}$"
+    },
+    "packageVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "platformItemId": {
+      "type": "string",
+      "pattern": "^socialitem_[a-f0-9]{24}$"
+    },
+    "platform": {
+      "type": "string",
+      "enum": [
+        "linkedin",
+        "x",
+        "instagram",
+        "medium"
+      ]
+    },
+    "characterCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "wordCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "claimAlignment": {
+      "type": "string",
+      "enum": [
+        "aligned",
+        "warning",
+        "blocked"
+      ]
+    },
+    "linkValid": {
+      "type": "boolean"
+    },
+    "hookWarnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "repetition": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "platformFit": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "disclosureCompliance": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "hashtagCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "emojiCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "copySimilarity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "timingValid": {
+      "type": "boolean"
+    },
+    "visualRisk": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blockingIssues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "passed_with_warnings",
+        "blocked"
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    }
+  },
+  "required": [
+    "packageId",
+    "packageVersion",
+    "platformItemId",
+    "platform",
+    "characterCount",
+    "wordCount",
+    "claimAlignment",
+    "linkValid",
+    "hookWarnings",
+    "repetition",
+    "platformFit",
+    "disclosureCompliance",
+    "hashtagCount",
+    "emojiCount",
+    "copySimilarity",
+    "timingValid",
+    "visualRisk",
+    "blockingIssues",
+    "warnings",
+    "status",
+    "createdAt"
+  ],
+  "additionalProperties": false
+}
