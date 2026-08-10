@@ -2,13 +2,15 @@ name: Content automation worker
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
+  # One durable worker at a time. A later invocation waits instead of racing
+  # the active lease owner or cancelling work mid-stage.
   group: ai-content-machine-production-worker
   cancel-in-progress: false
 

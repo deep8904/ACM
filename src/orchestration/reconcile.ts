@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { DatabaseClient } from "../database/client";
+import type { EnqueueAutomationJob } from "./models";
 import { PostgresAutomationJobRepository } from "./repository";
 
 export async function reconcileAutomationQueue(
@@ -9,20 +10,7 @@ export async function reconcileAutomationQueue(
   now = new Date(),
 ) {
   const enqueued: string[] = [];
-  const day = now.toISOString().slice(0, 10);
-  enqueued.push(
-    (
-      await jobs.enqueue({
-        type: "discovery",
-        idempotencyKey: hash(`discovery:${day}`),
-        lineageKey: `discovery:${day}`,
-        payload: {
-          runId: `run_${day.replaceAll("-", "")}_scheduled`,
-          scheduled: true,
-        },
-      })
-    ).id,
-  );
+  enqueued.push((await jobs.enqueue(scheduledDiscoveryJob(now))).id);
 
   const topicEvents = await sql<{ id: string; topic_id: string }[]>`
     select e.id,e.topic_id from content_machine.topic_approved_events e
@@ -139,6 +127,19 @@ export async function reconcileAutomationQueue(
     );
   }
   return { enqueued: [...new Set(enqueued)] };
+}
+
+export function scheduledDiscoveryJob(now: Date): EnqueueAutomationJob {
+  const day = now.toISOString().slice(0, 10);
+  return {
+    type: "discovery",
+    idempotencyKey: hash(`discovery:${day}`),
+    lineageKey: `discovery:${day}`,
+    payload: {
+      runId: `run_${day.replaceAll("-", "")}_scheduled`,
+      scheduled: true,
+    },
+  };
 }
 
 export function automationKey(value: string) {

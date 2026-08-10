@@ -84,7 +84,27 @@ export class AutomationWorker {
   async reconcile() {
     if (!this.composition.sql)
       throw new Error("PostgreSQL storage is required");
-    return reconcileAutomationQueue(this.composition.sql, this.jobs);
+    const result = await reconcileAutomationQueue(
+      this.composition.sql,
+      this.jobs,
+    );
+    await this.jobs.heartbeatComponent({
+      component: "scheduler",
+      instanceId: this.environment.GITHUB_RUN_ID
+        ? `github-actions-${this.environment.GITHUB_RUN_ID}`
+        : this.workerId,
+      status: "healthy",
+      details: {
+        source:
+          this.environment.GITHUB_ACTIONS === "true"
+            ? "github_actions"
+            : "worker_command",
+        event: this.environment.GITHUB_EVENT_NAME ?? "local",
+        reconciled: result.enqueued.length,
+      },
+      observedAt: new Date().toISOString(),
+    });
+    return result;
   }
 
   async drain(
