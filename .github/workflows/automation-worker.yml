@@ -50,7 +50,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm ci --include=dev
       - name: Apply additive database migrations
         run: npm run db:migrate
       - name: Reconcile and drain durable work
