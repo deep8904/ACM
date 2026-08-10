@@ -1,0 +1,16 @@
+mode: assisted
+timeoutMs: 8000
+maxBytes: 1500000
+maxRedirects: 4
+maxSources: 8
+maxPrimarySources: 5
+maxIndependentSources: 5
+maxCommunitySources: 3
+maxPerPublisherGroup: 2
+excerptChars: 400
+totalExcerptChars: 3000
+cacheTtlHours: 24
+robotsCacheTtlHours: 24
+sufficiencyThreshold: 70
+abandonedClaimMinutes: 30
+userAgent: "AIContentMachine/0.4 (+local research)"

@@ -1,0 +1,47 @@
+[
+  {
+    "record_type": "social",
+    "publication_id": "publication_111111111111111111111111",
+    "posted_record_id": "publication_111111111111111111111111:linkedin:aaaaaaaaaaaaaaaa",
+    "platform": "linkedin",
+    "post_url": "https://linkedin.com/posts/example-1",
+    "window_start": "2026-06-01",
+    "window_end": "2026-06-08",
+    "impressions": 12000,
+    "clicks": 950,
+    "likes": 700,
+    "comments": 90,
+    "shares": 80,
+    "engagement_rate": 0.0725,
+    "collected_at": "2026-06-09T00:00:00Z"
+  },
+  {
+    "record_type": "social",
+    "publication_id": "publication_222222222222222222222222",
+    "posted_record_id": "publication_222222222222222222222222:x:bbbbbbbbbbbbbbbb",
+    "platform": "x",
+    "post_url": "https://x.com/deep/status/100",
+    "window_start": "2026-06-01",
+    "window_end": "2026-06-08",
+    "impressions": 40000,
+    "clicks": 120,
+    "likes": 300,
+    "reposts": 45,
+    "engagement_rate": 0.0116,
+    "collected_at": "2026-06-09T00:00:00Z"
+  },
+  {
+    "record_type": "social",
+    "publication_id": "publication_333333333333333333333333",
+    "posted_record_id": "publication_333333333333333333333333:instagram:cccccccccccccccc",
+    "platform": "instagram",
+    "post_url": "https://instagram.com/p/example3",
+    "window_start": "2026-06-01",
+    "window_end": "2026-06-29",
+    "impressions": 8500,
+    "saves": 900,
+    "clicks": 310,
+    "engagement_rate": 0.14,
+    "collected_at": "2026-06-30T00:00:00Z"
+  }
+]

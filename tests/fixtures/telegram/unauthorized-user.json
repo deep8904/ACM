@@ -1,0 +1,16 @@
+{
+  "update_id": 10,
+  "message": {
+    "message_id": 110,
+    "date": 1785000000,
+    "chat": {
+      "id": 246810,
+      "type": "private"
+    },
+    "from": {
+      "id": 999999,
+      "is_bot": false
+    },
+    "text": "/topics"
+  }
+}

@@ -1,0 +1,34 @@
+name: Publication example (disabled)
+on:
+  workflow_dispatch:
+    inputs:
+      enabled:
+        description: Explicitly enable after private durable state and secrets are configured
+        required: true
+        default: "false"
+jobs:
+  publish-due:
+    if: ${{ inputs.enabled == 'true' && vars.STORAGE_BACKEND == 'postgres' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Publish due approved events
+        env:
+          STORAGE_BACKEND: "postgres"
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_SCHEMA: "content_machine"
+          BLOG_GITHUB_TOKEN: ${{ secrets.BLOG_GITHUB_TOKEN }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: npm run db:verify
+      - name: Print readiness evidence
+        run: npm run production:readiness
+      - name: Publish due approved events
+        run: npm run publish:due -- --confirm-production yes

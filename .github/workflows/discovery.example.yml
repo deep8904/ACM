@@ -1,0 +1,23 @@
+name: Discovery Example
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 14 * * 2,5"
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run discover
+        env:
+          TZ: America/Phoenix

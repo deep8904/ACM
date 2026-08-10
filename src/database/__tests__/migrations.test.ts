@@ -1,0 +1,75 @@
+import { describe, expect, it } from "vitest";
+
+import { CRITICAL_TABLES } from "../health";
+import { loadMigrations } from "../migrations";
+
+describe("database migrations", () => {
+  it("are contiguous, private, and cover every critical table", async () => {
+    const migrations = await loadMigrations();
+    expect(migrations.map((item) => item.version)).toEqual([
+      "001",
+      "002",
+      "003",
+      "004",
+      "005",
+      "006",
+      "007",
+      "008",
+      "009",
+      "010",
+      "011",
+      "012",
+      "013",
+      "014",
+      "015",
+      "016",
+      "017",
+      "018",
+    ]);
+    const sql = migrations.map((item) => item.sql).join("\n");
+    expect(sql).toContain("create schema if not exists content_machine");
+    expect(sql).toContain("revoke all on schema content_machine from public");
+    for (const table of CRITICAL_TABLES)
+      expect(sql).toContain(`content_machine.${table}`);
+  });
+  it("keys stable research packet IDs by immutable version", async () => {
+    const migration = (await loadMigrations()).find(
+      (item) => item.version === "012",
+    );
+    expect(migration?.sql).toContain("primary key (id, packet_version)");
+    expect(migration?.sql).not.toMatch(
+      /delete\s+from\s+content_machine\.research_packets/i,
+    );
+    expect(migration?.sql).not.toMatch(
+      /update\s+content_machine\.research_packets/i,
+    );
+  });
+  it("keys stable research source IDs by retrieved content version", async () => {
+    const migration = (await loadMigrations()).find(
+      (item) => item.version === "013",
+    );
+    expect(migration?.sql).toContain("primary key (id, content_hash)");
+    expect(migration?.sql).not.toMatch(
+      /delete\s+from\s+content_machine\.research_sources/i,
+    );
+    expect(migration?.sql).not.toMatch(
+      /update\s+content_machine\.research_sources/i,
+    );
+  });
+  it("uses immutable guards for versioned content", async () => {
+    const sql = (await loadMigrations()).map((item) => item.sql).join("\n");
+    for (const table of [
+      "research_packets",
+      "article_drafts",
+      "editorial_reviews",
+      "social_packages",
+      "performance_snapshots",
+      "editorial_reports",
+      "publication_republishes",
+      "production_publication_artifacts",
+      "social_distribution_events",
+      "social_assets",
+    ])
+      expect(sql).toContain(`${table}_immutable`);
+  });
+});

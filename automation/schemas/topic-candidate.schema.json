@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TopicCandidate",
+  "type": "object",
+  "required": [
+    "id",
+    "clusterId",
+    "runId",
+    "title",
+    "summary",
+    "recommendedAngle",
+    "categories",
+    "keywords",
+    "sourceItemIds",
+    "primarySourceItemIds",
+    "firstSeenAt",
+    "latestSignalAt",
+    "score",
+    "scoreBreakdown",
+    "penalties",
+    "risks",
+    "selectionReasons",
+    "rejectionReasons",
+    "estimatedShelfLife",
+    "evidenceStrength",
+    "status",
+    "createdAt"
+  ],
+  "properties": {
+    "id": { "type": "string" },
+    "clusterId": { "type": "string" },
+    "runId": { "type": "string" },
+    "title": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string" },
+    "recommendedAngle": { "type": "string" },
+    "categories": { "type": "array", "items": { "type": "string" } },
+    "keywords": { "type": "array", "items": { "type": "string" } },
+    "entities": { "type": "array", "items": { "type": "string" } },
+    "sourceItemIds": { "type": "array", "items": { "type": "string" } },
+    "primarySourceItemIds": { "type": "array", "items": { "type": "string" } },
+    "firstSeenAt": { "type": "string", "format": "date-time" },
+    "latestSignalAt": { "type": "string", "format": "date-time" },
+    "score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "scoreBreakdown": {
+      "type": "object",
+      "required": [
+        "freshness",
+        "primarySource",
+        "sourceDiversity",
+        "discussionVelocity",
+        "audienceRelevance",
+        "analysisPotential",
+        "searchShelfLife",
+        "originalAngle"
+      ],
+      "additionalProperties": { "type": "number", "minimum": 0 }
+    },
+    "penalties": {
+      "type": "object",
+      "required": [
+        "rumorRisk",
+        "recentCoverage",
+        "weakEvidence",
+        "saturation",
+        "staleTopic",
+        "singleSource"
+      ],
+      "additionalProperties": { "type": "number", "maximum": 0 }
+    },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "selectionReasons": { "type": "array", "items": { "type": "string" } },
+    "rejectionReasons": { "type": "array", "items": { "type": "string" } },
+    "estimatedShelfLife": {
+      "enum": ["hours", "days", "weeks", "months", "evergreen"]
+    },
+    "evidenceStrength": {
+      "enum": ["strong", "moderate", "weak", "insufficient"]
+    },
+    "status": {
+      "enum": ["pending", "approved", "rejected", "suppressed", "expired"]
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "clusterFingerprint": { "type": "string" }
+  }
+}

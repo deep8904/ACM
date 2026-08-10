@@ -1,0 +1,16 @@
+{
+  "update_id": 8,
+  "message": {
+    "message_id": 108,
+    "date": 1785000000,
+    "chat": {
+      "id": 246810,
+      "type": "private"
+    },
+    "from": {
+      "id": 135790,
+      "is_bot": false
+    },
+    "text": "New Apple developer framework"
+  }
+}

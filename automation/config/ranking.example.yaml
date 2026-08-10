@@ -1,0 +1,168 @@
+clustering:
+  threshold: 0.45
+  completeLinkRatio: 0.9
+  lookbackHours: 720
+  maxComparisonHours: 168
+  keywordCount: 12
+
+output:
+  maxRankedCandidates: 20
+  aiPacketSize: 20
+
+scoring:
+  positive:
+    freshness: 20
+    primarySource: 15
+    sourceDiversity: 10
+    discussionVelocity: 15
+    audienceRelevance: 15
+    analysisPotential: 10
+    searchShelfLife: 10
+    originalAngle: 5
+  penalties:
+    rumorRisk: 20
+    recentCoverage: 25
+    weakEvidence: 20
+    saturation: 10
+    staleTopic: 10
+    singleSource: 8
+  minimumEligibleScore: 35
+
+suppressionWindowsDays:
+  recommended: 21
+  approved: 45
+  rejected: 14
+  published: 90
+
+stopWords:
+  - a
+  - an
+  - and
+  - are
+  - as
+  - at
+  - be
+  - by
+  - for
+  - from
+  - in
+  - is
+  - it
+  - of
+  - on
+  - that
+  - the
+  - this
+  - to
+  - with
+
+nonSemanticPrefixes: [breaking, update, official]
+publisherSuffixes: [OpenAI, Tech News, Developer Journal, Design Weekly]
+rumorPatterns:
+  - reportedly
+  - rumored
+  - rumor
+  - leak
+  - leaked
+  - alleged
+  - may launch
+  - expected to
+  - according to sources
+  - unconfirmed
+  - could release
+eventKeywords:
+  - announce
+  - announcement
+  - launch
+  - release
+  - available
+  - update
+  - fixes
+  - patch
+  - security
+  - preview
+  - beta
+eventGroups:
+  release: [announce, announcement, launch, release, available]
+  update: [update, fixes, patch, security]
+  preview: [preview, beta]
+meaningfulUpdateTerms: [security, fixes, patch, follow-up, expands, adds]
+
+entityRules:
+  - canonical: OpenAI
+    type: organization
+    aliases: [OpenAI]
+  - canonical: Anthropic
+    type: organization
+    aliases: [Anthropic]
+  - canonical: NVIDIA
+    type: organization
+    aliases: [NVIDIA]
+  - canonical: Figma
+    type: organization
+    aliases: [Figma]
+  - canonical: Adobe
+    type: organization
+    aliases: [Adobe]
+  - canonical: GitHub
+    type: organization
+    aliases: [GitHub]
+  - canonical: Apple
+    type: organization
+    aliases: [Apple]
+  - canonical: Microsoft
+    type: organization
+    aliases: [Microsoft]
+  - canonical: GPT-5 API
+    type: product
+    aliases: [GPT-5 API]
+  - canonical: GPT-5 Mini
+    type: product
+    aliases: [GPT-5 Mini]
+  - canonical: RTX 5090
+    type: hardware
+    aliases: [RTX 5090]
+  - canonical: RTX 6090
+    type: hardware
+    aliases: [RTX 6090]
+  - canonical: Next.js 16
+    type: framework
+    aliases: [Next.js 16]
+  - canonical: Unreal Engine
+    type: engine
+    aliases: [Unreal Engine]
+  - canonical: Unity
+    type: engine
+    aliases: [Unity]
+  - canonical: C++
+    type: language
+    aliases: [C++]
+  - canonical: .NET
+    type: framework
+    aliases: [.NET]
+  - canonical: Figma Sites
+    type: product
+    aliases: [Figma Sites]
+
+relevanceWeights:
+  software: 3
+  developer: 3
+  api: 3
+  artificial intelligence: 3
+  ai: 3
+  hardware: 3
+  design: 3
+  figma: 3
+  gaming: 3
+  game development: 3
+  creator: 2
+  workflow: 2
+  keyboard: 2
+  monitor: 2
+  laptop: 2
+  camera: 2
+
+publisherGroups:
+  openai-news: openai
+  openai-changelog: openai
+  fixture-hacker-news: hacker-news

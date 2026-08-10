@@ -1,0 +1,19 @@
+mode: fixture
+repository: fixture/blog
+defaultBranch: main
+branchStrategy: direct
+contentRoot: content/blog
+pathPattern: content/blog/{year}/{slug}.mdx
+siteOrigin: https://example.com
+blogRoutePrefix: /blog
+citationStyle: numbered_footnotes
+commitMessagePattern: "publish: add {title}"
+deploymentProvider: mock
+deploymentPolicy: required
+deploymentTimeoutSeconds: 60
+pollIntervalSeconds: 2
+publicPageVerification: true
+maximumAttempts: 3
+scheduledGraceMinutes: 1440
+claimTimeoutMinutes: 30
+notifications: true

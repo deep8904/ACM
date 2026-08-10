@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ManualTopicCandidate",
+  "type": "object",
+  "required": ["id", "candidateId", "runId", "title", "summary", "recommendedAngle", "score", "selectionReasons", "evidenceStrength", "sourceItemIds", "primarySourceItemIds", "submittedAt", "submittedByUserId", "submittedInChatId"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^topic_manual_[a-f0-9]{24}$" },
+    "candidateId": { "type": "string", "pattern": "^manual_[a-f0-9]{24}$" },
+    "runId": { "type": "string", "pattern": "^manual_[A-Za-z0-9_-]+$" },
+    "title": { "type": "string", "minLength": 3, "maxLength": 500 },
+    "submittedUrl": { "type": "string", "format": "uri" },
+    "summary": { "type": "string", "maxLength": 1000 },
+    "recommendedAngle": { "type": "string", "maxLength": 2000 },
+    "score": { "type": "null" },
+    "selectionReasons": { "const": ["manually submitted"] },
+    "evidenceStrength": { "const": "unresearched" },
+    "sourceItemIds": { "const": [] },
+    "primarySourceItemIds": { "const": [] },
+    "submittedAt": { "type": "string", "format": "date-time" },
+    "submittedByUserId": { "type": "string", "pattern": "^[0-9]+$" },
+    "submittedInChatId": { "type": "string", "pattern": "^-?[0-9]+$" }
+  },
+  "additionalProperties": false
+}

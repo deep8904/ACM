@@ -1,0 +1,42 @@
+[
+  {
+    "publication_id": "publication_111111111111111111111111",
+    "revisions": 1,
+    "research_delay_seconds": 0,
+    "approval_delay_seconds": 1800,
+    "publication_failures": 0,
+    "publication_retries": 0
+  },
+  {
+    "publication_id": "publication_222222222222222222222222",
+    "revisions": 4,
+    "research_delay_seconds": 0,
+    "approval_delay_seconds": 7200,
+    "publication_failures": 0,
+    "publication_retries": 0
+  },
+  {
+    "publication_id": "publication_333333333333333333333333",
+    "revisions": 2,
+    "research_delay_seconds": 14400,
+    "approval_delay_seconds": 900,
+    "publication_failures": 0,
+    "publication_retries": 0
+  },
+  {
+    "publication_id": "publication_444444444444444444444444",
+    "revisions": 2,
+    "research_delay_seconds": 600,
+    "approval_delay_seconds": 86400,
+    "publication_failures": 0,
+    "publication_retries": 0
+  },
+  {
+    "publication_id": "publication_555555555555555555555555",
+    "revisions": 1,
+    "research_delay_seconds": 0,
+    "approval_delay_seconds": 1200,
+    "publication_failures": 1,
+    "publication_retries": 1
+  }
+]

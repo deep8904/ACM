@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TopicApproval",
+  "type": "object",
+  "required": ["id", "topicId", "candidateId", "runId", "chatId", "userId", "action", "status", "editorialNotes", "requestedAngle", "createdAt", "updatedAt", "telegramUpdateId", "version"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^approval_[a-f0-9]{24}$" },
+    "topicId": { "type": "string", "minLength": 1 },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "chatId": { "type": "string", "pattern": "^-?[0-9]+$" },
+    "userId": { "type": "string", "pattern": "^[0-9]+$" },
+    "action": { "enum": ["approve", "reject", "replace", "add_topic", "add_url", "change_angle", "add_note", "cancel"] },
+    "status": { "enum": ["pending", "approved", "rejected", "cancelled", "superseded"] },
+    "editorialNotes": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 2000 } },
+    "requestedAngle": { "type": "string", "maxLength": 2000 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "telegramUpdateId": { "type": "integer", "minimum": 0 },
+    "telegramMessageId": { "type": "integer", "minimum": 0 },
+    "callbackQueryId": { "type": "string", "minLength": 1 },
+    "version": { "type": "integer", "minimum": 1 }
+  },
+  "additionalProperties": false
+}

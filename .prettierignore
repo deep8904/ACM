@@ -1,0 +1,13 @@
+.next
+automation
+brand
+coverage
+data
+examples
+MANIFEST.json
+node_modules
+package-lock.json
+prompts
+templates
+work
+tests/fixtures/research/malformed.fixture.test/page.html

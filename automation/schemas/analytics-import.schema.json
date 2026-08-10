@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^analyticsimport_[a-f0-9]{24}$"
+    },
+    "provider": {
+      "type": "string",
+      "enum": [
+        "google_search_console",
+        "vercel_web_analytics",
+        "google_analytics",
+        "manual_csv",
+        "manual_json",
+        "publication_records",
+        "social_manual",
+        "future_provider"
+      ]
+    },
+    "fileHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "importedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "fileName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "byteCount": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "rowCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "articleRecordCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "socialRecordCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 500
+      }
+    }
+  },
+  "required": [
+    "id",
+    "provider",
+    "fileHash",
+    "importedAt",
+    "fileName",
+    "byteCount",
+    "rowCount",
+    "articleRecordCount",
+    "socialRecordCount",
+    "warnings"
+  ],
+  "additionalProperties": false
+}

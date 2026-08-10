@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Fixture Atom</title>
+  <entry>
+    <title>Practical platform release</title>
+    <link rel="alternate" href="https://example.com/articles/release?edition=developer&amp;utm_medium=atom" />
+    <id>atom-release-1</id>
+    <updated>2026-08-06T12:05:00Z</updated>
+    <summary type="html">A second report about the release.</summary>
+    <author><name>Atom Editor</name></author>
+    <category term="software" />
+  </entry>
+  <entry>
+    <title>Independent tooling update</title>
+    <link href="https://example.com/articles/tooling-update/" />
+    <id>atom-tooling-2</id>
+    <published>2026-08-06T13:00:00Z</published>
+    <summary><![CDATA[<p>Details &amp; limitations.</p>]]></summary>
+  </entry>
+</feed>

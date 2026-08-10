@@ -1,0 +1,341 @@
+{
+  "$schema": "../automation/schemas/durable-repository-inventory.schema.json",
+  "auditedAt": "2026-08-07",
+  "schema": "content_machine",
+  "explicitInterfaceCount": 53,
+  "directArtifactFamilyCount": 2,
+  "storageConcerns": [
+    {
+      "domain": "ranking",
+      "interface": "HistoryRepository",
+      "file": "FileHistoryRepository",
+      "postgres": "PostgresHistoryRepository"
+    },
+    {
+      "domain": "telegram",
+      "interface": "TopicCatalog",
+      "file": "FileTopicCatalog",
+      "postgres": "PostgresTopicCatalog"
+    },
+    {
+      "domain": "telegram",
+      "interface": "TopicApprovalRepository",
+      "file": "FileTelegramRepository",
+      "postgres": "PostgresTopicApprovalRepository"
+    },
+    {
+      "domain": "research",
+      "interface": "ResearchJobRepository",
+      "file": "FileResearchJobRepository",
+      "postgres": "PostgresResearchJobRepository"
+    },
+    {
+      "domain": "research",
+      "interface": "ResearchSourceRepository",
+      "file": "FileResearchSourceRepository",
+      "postgres": "PostgresResearchSourceRepository"
+    },
+    {
+      "domain": "research",
+      "interface": "ResearchPacketRepository",
+      "file": "FileResearchPacketRepository",
+      "postgres": "PostgresResearchPacketRepository"
+    },
+    {
+      "domain": "research",
+      "interface": "ResearchCacheRepository",
+      "file": "FileResearchCacheRepository",
+      "postgres": "PostgresResearchCacheRepository"
+    },
+    {
+      "domain": "research",
+      "interface": "ResearchTaskRepository",
+      "file": "FileResearchTaskRepository",
+      "postgres": "PostgresResearchTaskRepository"
+    },
+    {
+      "domain": "research",
+      "interface": "ApprovedEventRepository",
+      "file": "FileApprovedEventRepository",
+      "postgres": "PostgresApprovedEventRepository"
+    },
+    {
+      "domain": "writing",
+      "interface": "WritingJobRepository",
+      "file": "FileWritingJobRepository",
+      "postgres": "PostgresWritingJobRepository"
+    },
+    {
+      "domain": "writing",
+      "interface": "ArticleDraftRepository",
+      "file": "FileArticleDraftRepository",
+      "postgres": "PostgresArticleDraftRepository"
+    },
+    {
+      "domain": "writing",
+      "interface": "DraftQualityRepository",
+      "file": "FileArticleDraftRepository",
+      "postgres": "PostgresDraftQualityRepository"
+    },
+    {
+      "domain": "writing",
+      "interface": "ArticleHistoryRepository",
+      "file": "FileArticleHistoryRepository",
+      "postgres": "PostgresArticleHistoryRepository"
+    },
+    {
+      "domain": "writing",
+      "interface": "WritingTaskRepository",
+      "file": "FileWritingTaskRepository",
+      "postgres": "PostgresWritingTaskRepository"
+    },
+    {
+      "domain": "writing",
+      "interface": "WritingGateRepository",
+      "file": "FileWritingGateRepository",
+      "postgres": "PostgresWritingGateRepository"
+    },
+    {
+      "domain": "review",
+      "interface": "EditorialReviewJobRepository",
+      "file": "FileEditorialReviewJobRepository",
+      "postgres": "PostgresEditorialReviewJobRepository"
+    },
+    {
+      "domain": "review",
+      "interface": "EditorialReviewRepository",
+      "file": "FileEditorialReviewRepository",
+      "postgres": "PostgresEditorialReviewRepository"
+    },
+    {
+      "domain": "review",
+      "interface": "EditorialIssueRepository",
+      "file": "FileEditorialReviewRepository",
+      "postgres": "PostgresEditorialIssueRepository"
+    },
+    {
+      "domain": "review",
+      "interface": "ReviewTaskRepository",
+      "file": "FileReviewTaskRepository",
+      "postgres": "PostgresReviewTaskRepository"
+    },
+    {
+      "domain": "review",
+      "interface": "RevisionTaskRepository",
+      "file": "FileRevisionTaskRepository",
+      "postgres": "PostgresRevisionTaskRepository"
+    },
+    {
+      "domain": "review",
+      "interface": "FinalApprovalRepository",
+      "file": "FileFinalApprovalRepository",
+      "postgres": "PostgresFinalApprovalRepository"
+    },
+    {
+      "domain": "review",
+      "interface": "FinalApprovedEventRepository",
+      "file": "FileFinalApprovedEventRepository",
+      "postgres": "PostgresFinalApprovedEventRepository"
+    },
+    {
+      "domain": "review",
+      "interface": "DraftPreviewRepository",
+      "file": "FileDraftPreviewRepository",
+      "postgres": "PostgresDraftPreviewRepository"
+    },
+    {
+      "domain": "review",
+      "interface": "FinalConversationRepository",
+      "file": "FileFinalConversationRepository",
+      "postgres": "PostgresFinalConversationRepository"
+    },
+    {
+      "domain": "review",
+      "interface": "ReviewGateRepository",
+      "file": "FileReviewGateRepository",
+      "postgres": "PostgresReviewGateRepository"
+    },
+    {
+      "domain": "publication",
+      "interface": "ContentRepository",
+      "file": "LocalContentRepository/GitHubContentRepository",
+      "postgres": null,
+      "reason": "public Git boundary"
+    },
+    {
+      "domain": "publication",
+      "interface": "PublicationJobRepository",
+      "file": "FilePublicationJobRepository",
+      "postgres": "PostgresPublicationJobRepository"
+    },
+    {
+      "domain": "publication",
+      "interface": "PublicationRepository",
+      "file": "FilePublicationRepository",
+      "postgres": "PostgresPublicationRepository"
+    },
+    {
+      "domain": "publication",
+      "interface": "FinalApprovedEventConsumerRepository",
+      "file": "FileEventConsumerRepository",
+      "postgres": "PostgresEventConsumerRepository"
+    },
+    {
+      "domain": "publication",
+      "interface": "DeploymentStatusRepository",
+      "file": "FileDeploymentStatusRepository",
+      "postgres": "PostgresDeploymentStatusRepository"
+    },
+    {
+      "domain": "publication",
+      "interface": "PublicationVerificationRepository",
+      "file": "FilePublicationVerificationRepository",
+      "postgres": "PostgresPublicationVerificationRepository"
+    },
+    {
+      "domain": "publication",
+      "interface": "FinalApprovedEventSource",
+      "file": "file review event source",
+      "postgres": "PostgresFinalApprovedEventSource"
+    },
+    {
+      "domain": "social",
+      "interface": "PublishedArticleContentRepository",
+      "file": "public content adapter",
+      "postgres": null,
+      "reason": "public Git boundary"
+    },
+    {
+      "domain": "social",
+      "interface": "SocialGenerationJobRepository",
+      "file": "FileSocialJobRepository",
+      "postgres": "PostgresSocialGenerationJobRepository"
+    },
+    {
+      "domain": "social",
+      "interface": "SocialPackageRepository",
+      "file": "FileSocialPackageRepository",
+      "postgres": "PostgresSocialPackageRepository"
+    },
+    {
+      "domain": "social",
+      "interface": "SocialQualityRepository",
+      "file": "FileSocialQualityRepository",
+      "postgres": "PostgresSocialQualityRepository"
+    },
+    {
+      "domain": "social",
+      "interface": "SocialApprovalRepository",
+      "file": "FileSocialApprovalRepository",
+      "postgres": "PostgresSocialApprovalRepository"
+    },
+    {
+      "domain": "social",
+      "interface": "SocialHistoryRepository",
+      "file": "FileSocialHistoryRepository",
+      "postgres": "PostgresSocialHistoryRepository"
+    },
+    {
+      "domain": "social",
+      "interface": "SocialExportRepository",
+      "file": "FileSocialExportRepository",
+      "postgres": "PostgresSocialExportRepository"
+    },
+    {
+      "domain": "social",
+      "interface": "SocialTaskRepository",
+      "file": "FileSocialTaskRepository",
+      "postgres": "PostgresSocialTaskRepository"
+    },
+    {
+      "domain": "social",
+      "interface": "SocialPostedRepository",
+      "file": "FileSocialPostedRepository",
+      "postgres": "PostgresSocialPostedRepository"
+    },
+    {
+      "domain": "social",
+      "interface": "SocialRevisionRepository",
+      "file": "FileSocialRevisionRepository",
+      "postgres": "PostgresSocialRevisionRepository"
+    },
+    {
+      "domain": "social",
+      "interface": "SocialConversationRepository",
+      "file": "FileSocialConversationRepository",
+      "postgres": "PostgresSocialConversationRepository"
+    },
+    {
+      "domain": "analytics",
+      "interface": "PublicationAnalyticsSource",
+      "file": "publication repository adapter",
+      "postgres": "PostgresPublicationAnalyticsSource"
+    },
+    {
+      "domain": "analytics",
+      "interface": "AnalyticsSourceRepository",
+      "file": "FileAnalyticsSourceRepository",
+      "postgres": "PostgresAnalyticsSourceRepository"
+    },
+    {
+      "domain": "analytics",
+      "interface": "AnalyticsSyncJobRepository",
+      "file": "FileAnalyticsSyncJobRepository",
+      "postgres": "PostgresAnalyticsSyncJobRepository"
+    },
+    {
+      "domain": "analytics",
+      "interface": "ArticleMetricsRepository",
+      "file": "FileArticleMetricsRepository",
+      "postgres": "PostgresArticleMetricsRepository"
+    },
+    {
+      "domain": "analytics",
+      "interface": "SocialMetricsRepository",
+      "file": "FileSocialMetricsRepository",
+      "postgres": "PostgresSocialMetricsRepository"
+    },
+    {
+      "domain": "analytics",
+      "interface": "PerformanceSnapshotRepository",
+      "file": "FilePerformanceSnapshotRepository",
+      "postgres": "PostgresPerformanceSnapshotRepository"
+    },
+    {
+      "domain": "analytics",
+      "interface": "EditorialInsightRepository",
+      "file": "FileEditorialInsightRepository",
+      "postgres": "PostgresEditorialInsightRepository"
+    },
+    {
+      "domain": "analytics",
+      "interface": "EditorialReportRepository",
+      "file": "FileEditorialReportRepository",
+      "postgres": "PostgresEditorialReportRepository"
+    },
+    {
+      "domain": "analytics",
+      "interface": "AnalyticsImportRepository",
+      "file": "FileAnalyticsImportRepository",
+      "postgres": "PostgresAnalyticsImportRepository"
+    },
+    {
+      "domain": "analytics",
+      "interface": "AnalyticsTaskRepository",
+      "file": "FileAnalyticsTaskRepository",
+      "postgres": "PostgresAnalyticsTaskRepository"
+    },
+    {
+      "domain": "discovery",
+      "interface": "DiscoveryRunArtifacts",
+      "file": "direct run files",
+      "postgres": "PostgresWorkflowArtifactRepository"
+    },
+    {
+      "domain": "ranking",
+      "interface": "RankingRunArtifacts",
+      "file": "direct run files",
+      "postgres": "PostgresWorkflowArtifactRepository"
+    }
+  ]
+}

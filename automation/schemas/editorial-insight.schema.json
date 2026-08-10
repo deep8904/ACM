@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^insight_[a-f0-9]{24}$"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "topic_performance",
+        "article_type",
+        "headline",
+        "search",
+        "social_platform",
+        "publishing_time",
+        "shelf_life",
+        "source_mix",
+        "content_length",
+        "category_mix",
+        "engagement",
+        "distribution",
+        "conversion",
+        "data_quality",
+        "workflow_efficiency",
+        "ranking_feedback"
+      ]
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "observation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1500
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "high",
+        "moderate",
+        "low",
+        "insufficient"
+      ]
+    },
+    "sampleSize": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "recommendedAction": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "limitations": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "informational",
+        "review_recommended",
+        "action_recommended",
+        "insufficient_data"
+      ]
+    },
+    "dataQuality": {
+      "type": "string",
+      "enum": [
+        "high",
+        "moderate",
+        "low",
+        "insufficient"
+      ]
+    },
+    "suggestedChange": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string"
+            },
+            "current": {
+              "type": "number"
+            },
+            "proposed": {
+              "type": "number"
+            },
+            "status": {
+              "type": "string",
+              "const": "requires_manual_review"
+            }
+          },
+          "required": [
+            "field",
+            "current",
+            "proposed",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "experiment": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "hypothesis": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            },
+            "metric": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "baseline": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "duration": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "minimumSampleSize": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "variablesHeldConstant": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              }
+            },
+            "stopCondition": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "ethicalConstraints": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              }
+            },
+            "status": {
+              "type": "string",
+              "const": "requires_manual_review"
+            }
+          },
+          "required": [
+            "hypothesis",
+            "metric",
+            "baseline",
+            "duration",
+            "minimumSampleSize",
+            "variablesHeldConstant",
+            "stopCondition",
+            "ethicalConstraints",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "category",
+    "scope",
+    "title",
+    "observation",
+    "evidence",
+    "confidence",
+    "sampleSize",
+    "recommendedAction",
+    "limitations",
+    "status",
+    "dataQuality",
+    "suggestedChange",
+    "experiment",
+    "createdAt",
+    "version"
+  ],
+  "additionalProperties": false
+}

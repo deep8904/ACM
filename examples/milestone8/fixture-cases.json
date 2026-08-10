@@ -1,0 +1,6 @@
+{
+  "platforms": ["linkedin", "x", "instagram", "medium"],
+  "cases": ["published_exact", "deployment_unverified", "stale_hash", "valid_import", "overlong_content", "duplicate_thread", "missing_alt_text", "misleading_visual", "removed_uncertainty", "source_based_disclosure", "duplicate_import", "modified_revision", "future_schedule", "past_schedule", "signed_callback", "tampered_callback", "manual_export", "manual_posted_record"],
+  "livePosting": false,
+  "analytics": false
+}

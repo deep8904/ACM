@@ -1,0 +1,459 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^review_[a-f0-9]{24}$"
+    },
+    "draftId": {
+      "type": "string",
+      "pattern": "^draft_[a-f0-9]{24}$"
+    },
+    "draftVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "researchPacketId": {
+      "type": "string",
+      "pattern": "^packet_[a-f0-9]{24}$"
+    },
+    "researchPacketVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "pass_with_warnings",
+        "revise",
+        "block"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 3000
+    },
+    "strengths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^issue_[a-f0-9]{24}$"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "factual_support",
+              "source_misrepresentation",
+              "missing_uncertainty",
+              "conflicting_evidence",
+              "headline_accuracy",
+              "structure",
+              "clarity",
+              "repetition",
+              "brand_voice",
+              "ai_style",
+              "legal_risk",
+              "copyright",
+              "product_disclosure",
+              "first_hand_claim",
+              "citation",
+              "seo",
+              "mdx",
+              "accessibility",
+              "other"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "major",
+              "critical"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "accepted",
+              "rejected",
+              "resolved",
+              "waived"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "section": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "paragraphReference": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "claimReferenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^draftclaim_[a-f0-9]{24}$"
+            }
+          },
+          "sourceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^source_[a-f0-9]{24}$"
+            }
+          },
+          "suggestedCorrection": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "resolvedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "resolutionNotes": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "id",
+          "category",
+          "severity",
+          "status",
+          "title",
+          "description",
+          "claimReferenceIds",
+          "sourceIds",
+          "blocking",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "requiredRevisions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 2000
+      }
+    },
+    "optionalImprovements": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 2000
+      }
+    },
+    "headlineAssessment": {
+      "type": "object",
+      "properties": {
+        "rating": {
+          "type": "string",
+          "enum": [
+            "strong",
+            "acceptable",
+            "needs_work",
+            "blocking"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "required": [
+        "rating",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "sourceAssessment": {
+      "type": "object",
+      "properties": {
+        "rating": {
+          "type": "string",
+          "enum": [
+            "strong",
+            "acceptable",
+            "needs_work",
+            "blocking"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "required": [
+        "rating",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "claimAssessment": {
+      "type": "object",
+      "properties": {
+        "rating": {
+          "type": "string",
+          "enum": [
+            "strong",
+            "acceptable",
+            "needs_work",
+            "blocking"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "required": [
+        "rating",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "styleAssessment": {
+      "type": "object",
+      "properties": {
+        "rating": {
+          "type": "string",
+          "enum": [
+            "strong",
+            "acceptable",
+            "needs_work",
+            "blocking"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "required": [
+        "rating",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "structureAssessment": {
+      "type": "object",
+      "properties": {
+        "rating": {
+          "type": "string",
+          "enum": [
+            "strong",
+            "acceptable",
+            "needs_work",
+            "blocking"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "required": [
+        "rating",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "riskAssessment": {
+      "type": "object",
+      "properties": {
+        "rating": {
+          "type": "string",
+          "enum": [
+            "strong",
+            "acceptable",
+            "needs_work",
+            "blocking"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "required": [
+        "rating",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "seoAssessment": {
+      "type": "object",
+      "properties": {
+        "rating": {
+          "type": "string",
+          "enum": [
+            "strong",
+            "acceptable",
+            "needs_work",
+            "blocking"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "required": [
+        "rating",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "recommendedTitle": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 110
+    },
+    "recommendedDescription": {
+      "type": "string",
+      "minLength": 80,
+      "maxLength": 180
+    },
+    "recommendedArticleType": {
+      "type": "string",
+      "enum": [
+        "breaking_news",
+        "news_analysis",
+        "technical_explainer",
+        "release_guide",
+        "source_based_review",
+        "buying_analysis",
+        "comparison",
+        "industry_analysis",
+        "opinion_analysis",
+        "tutorial_candidate"
+      ]
+    },
+    "unresolvedQuestions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "reviewerNotes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "const": "manual_claude_code"
+        },
+        "taskHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "mode",
+        "taskHash"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "id",
+    "draftId",
+    "draftVersion",
+    "researchPacketId",
+    "researchPacketVersion",
+    "decision",
+    "summary",
+    "strengths",
+    "issues",
+    "requiredRevisions",
+    "optionalImprovements",
+    "headlineAssessment",
+    "sourceAssessment",
+    "claimAssessment",
+    "styleAssessment",
+    "structureAssessment",
+    "riskAssessment",
+    "seoAssessment",
+    "unresolvedQuestions",
+    "reviewerNotes",
+    "createdAt",
+    "provenance"
+  ],
+  "additionalProperties": false
+}

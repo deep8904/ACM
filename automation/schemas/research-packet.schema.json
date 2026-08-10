@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-content-machine.local/schemas/research-packet.schema.json",
+  "title": "ResearchPacket v1",
+  "type": "object",
+  "required": ["id", "version", "topicId", "approvedEventId", "status", "researchMode", "facts", "conflicts", "unknowns", "sourceIndex", "researchSufficiency", "sufficient", "blockingReasons", "provenance"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^packet_[a-f0-9]{24}$" }, "version": { "type": "integer", "minimum": 1 }, "topicId": { "type": "string", "minLength": 1 }, "approvedEventId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["collecting", "awaiting_assisted_synthesis", "ready", "insufficient", "failed", "superseded"] }, "researchMode": { "enum": ["deterministic", "assisted_import"] },
+    "facts": { "type": "array" }, "conflicts": { "type": "array" }, "unknowns": { "type": "array", "items": { "type": "string" } }, "sourceIndex": { "type": "array" }, "researchSufficiency": { "type": "object" }, "sufficient": { "type": "boolean" }, "blockingReasons": { "type": "array", "items": { "type": "string" } }, "provenance": { "type": "object" }
+  }
+}

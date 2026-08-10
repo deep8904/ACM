@@ -1,0 +1,14 @@
+[
+  {
+    "id": "history_figma_sites_launch",
+    "status": "published",
+    "title": "Figma Sites launches for design teams",
+    "entities": ["Figma", "Figma Sites"],
+    "keywords": ["figma", "sites", "launch"],
+    "productIdentifiers": ["Figma Sites"],
+    "eventKeywords": ["launch"],
+    "clusterFingerprint": "historical-figma-sites-launch",
+    "date": "2026-07-28T15:00:00.000Z",
+    "articleSlug": "figma-sites-launch"
+  }
+]

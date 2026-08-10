@@ -1,0 +1,19 @@
+{
+  "update_id": 3,
+  "callback_query": {
+    "id": "fixture_approve",
+    "from": {
+      "id": 135790,
+      "is_bot": false
+    },
+    "message": {
+      "message_id": 1000,
+      "date": 1785000000,
+      "chat": {
+        "id": 246810,
+        "type": "private"
+      }
+    },
+    "data": "t:a:abcdef123456:1:abcdefghij"
+  }
+}

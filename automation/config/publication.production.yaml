@@ -1,0 +1,19 @@
+mode: github
+repository: deep8904/Deep-Blog
+defaultBranch: main
+branchStrategy: direct
+contentRoot: content/blog
+pathPattern: content/blog/{year}/{slug}.mdx
+siteOrigin: https://deep-blog-rhqvwjjmy-deepkumar-s-projects.vercel.app
+blogRoutePrefix: /blog
+citationStyle: numbered_footnotes
+commitMessagePattern: "publish: add {title}"
+deploymentProvider: vercel_git
+deploymentPolicy: required
+deploymentTimeoutSeconds: 900
+pollIntervalSeconds: 15
+publicPageVerification: true
+maximumAttempts: 3
+scheduledGraceMinutes: 1440
+claimTimeoutMinutes: 30
+notifications: true

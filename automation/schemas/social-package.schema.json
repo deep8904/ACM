@@ -1,0 +1,467 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^socialpackage_[a-f0-9]{24}$"
+    },
+    "publicationId": {
+      "type": "string",
+      "pattern": "^publication_[a-f0-9]{24}$"
+    },
+    "topicId": {
+      "type": "string"
+    },
+    "articleSlug": {
+      "type": "string"
+    },
+    "articleTitle": {
+      "type": "string"
+    },
+    "canonicalUrl": {
+      "type": "string",
+      "format": "uri"
+    },
+    "articleContentHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "awaiting_generation",
+        "imported",
+        "validated",
+        "partially_approved",
+        "approved",
+        "scheduled",
+        "rejected",
+        "superseded",
+        "cancelled"
+      ]
+    },
+    "generationMode": {
+      "type": "string",
+      "enum": [
+        "manual_claude_code",
+        "manual_gemini",
+        "deterministic_placeholder",
+        "future_api"
+      ]
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "linkedin",
+          "x",
+          "instagram",
+          "medium"
+        ]
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^socialitem_[a-f0-9]{24}$"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "linkedin",
+              "x",
+              "instagram",
+              "medium"
+            ]
+          },
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "linkedin_post",
+              "x_post",
+              "x_thread",
+              "instagram_carousel",
+              "instagram_caption",
+              "medium_adaptation"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "approved",
+              "scheduled",
+              "rejected",
+              "changes_requested",
+              "posted_manually",
+              "posted",
+              "cancelled"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "slides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slideNumber": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "headline": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "body": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 400
+                },
+                "visualDirection": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 800
+                },
+                "altText": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                }
+              },
+              "required": [
+                "slideNumber",
+                "headline",
+                "body",
+                "visualDirection",
+                "altText"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "thread": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          },
+          "hashtags": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^#[\\p{L}\\p{N}_]+$"
+            }
+          },
+          "link": {
+            "type": "string",
+            "format": "uri"
+          },
+          "altText": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "visualBrief": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "type": "string",
+                "enum": [
+                  "linkedin",
+                  "x",
+                  "instagram",
+                  "medium"
+                ]
+              },
+              "purpose": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "subject": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "composition": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "aspectRatio": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 30
+              },
+              "typographyNeeds": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "background": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "mood": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "brandAlignment": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "recommendation": {
+                "type": "string",
+                "enum": [
+                  "abstract",
+                  "editorial",
+                  "diagrammatic",
+                  "official_asset",
+                  "product_based"
+                ]
+              },
+              "officialAssetPreference": {
+                "type": "boolean"
+              },
+              "prohibitedElements": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "misinformationRisk": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "altTextDraft": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              }
+            },
+            "required": [
+              "platform",
+              "purpose",
+              "subject",
+              "composition",
+              "aspectRatio",
+              "typographyNeeds",
+              "background",
+              "mood",
+              "brandAlignment",
+              "recommendation",
+              "officialAssetPreference",
+              "prohibitedElements",
+              "misinformationRisk",
+              "altTextDraft"
+            ],
+            "additionalProperties": false
+          },
+          "assetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^socialasset_[a-f0-9]{24}$"
+            }
+          },
+          "suggestedPublishAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "characterCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "claimReferences": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^pubclaim_[a-f0-9]{16}$"
+            }
+          },
+          "sourcePublicationHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": [
+          "id",
+          "platform",
+          "contentType",
+          "status",
+          "hashtags",
+          "characterCount",
+          "claimReferences",
+          "sourcePublicationHash",
+          "warnings",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "supersedesVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "taskHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "importHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "importedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "importedBy": {
+          "type": "string",
+          "const": "manual"
+        }
+      },
+      "required": [
+        "taskHash",
+        "importHash",
+        "importedAt",
+        "importedBy"
+      ],
+      "additionalProperties": false
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 500
+      }
+    },
+    "disclosures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "relationship": {
+            "type": "string",
+            "enum": [
+              "sponsorship",
+              "affiliate",
+              "free_review_sample",
+              "paid_partnership",
+              "employer_relationship"
+            ]
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "platforms": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "linkedin",
+                "x",
+                "instagram",
+                "medium"
+              ]
+            }
+          },
+          "claimReference": {
+            "type": "string",
+            "pattern": "^pubclaim_[a-f0-9]{16}$"
+          }
+        },
+        "required": [
+          "relationship",
+          "statement",
+          "platforms",
+          "claimReference"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "id",
+    "publicationId",
+    "topicId",
+    "articleSlug",
+    "articleTitle",
+    "canonicalUrl",
+    "articleContentHash",
+    "version",
+    "status",
+    "generationMode",
+    "platforms",
+    "items",
+    "createdAt",
+    "updatedAt",
+    "provenance",
+    "warnings",
+    "disclosures"
+  ],
+  "additionalProperties": false
+}

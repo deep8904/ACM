@@ -1,0 +1,27 @@
+mode: manual_claude_code
+enabledPlatforms: [linkedin, x, instagram, medium]
+defaultPlatforms: [linkedin, x]
+characterLimits: { linkedin: 3000, x: 280, instagram: 2200, medium: 20000 }
+hashtagLimits: { linkedin: 3, x: 2, instagram: 8, medium: 0 }
+emojiLimits: { linkedin: 2, x: 2, instagram: 8, medium: 0 }
+xThreadMin: 4
+xThreadMax: 8
+carouselMin: 5
+carouselMax: 8
+copySimilarityWarning: 0.35
+copySimilarityBlock: 0.65
+timezone: America/Phoenix
+exportRoot: data/social/exports
+telegramPreviewCharacters: 700
+approvalCallbackExpiryMinutes: 60
+conversationExpiryMinutes: 30
+maximumRevisions: 5
+manualPostingDefault: true
+mediumAdaptationMode: plan
+imagePromptsEnabled: true
+claimContextCharacters: 12000
+scheduleWindows:
+  linkedin: { days: [2, 3, 4], hour: 9, delayDays: 0 }
+  x: { days: [1, 2, 3, 4, 5], hour: 11, delayDays: 0 }
+  instagram: { days: [1, 2, 3, 4, 5], hour: 18, delayDays: 0 }
+  medium: { days: [1, 2, 3, 4, 5], hour: 9, delayDays: 2 }

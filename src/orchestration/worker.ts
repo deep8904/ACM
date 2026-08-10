@@ -1,0 +1,682 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { z } from "zod";
+
+import { FeedAdapter } from "../discovery/adapters/feed-adapter";
+import { HackerNewsAdapter } from "../discovery/adapters/hacker-news-adapter";
+import { loadSourceConfig } from "../discovery/config/source-config";
+import { runDiscovery } from "../discovery/discovery-service";
+import { createConfiguredLlmProvider, type LLMProvider } from "../llm/provider";
+import { GitHubContentRepository } from "../publication/repository";
+import {
+  HttpPublicPageVerifier,
+  VercelGitDeploymentProvider,
+  VercelGitHubDeploymentProvider,
+} from "../publication/deployment";
+import { loadPublicationConfig } from "../publication/config";
+import { PublicationService } from "../publication/service";
+import {
+  DirectProductionVerificationService,
+  PostgresDirectProductionArtifactRepository,
+} from "../publication/production-verification";
+import { PostgresHistoryRepository } from "../ranking/postgres-history";
+import { loadRankingConfig } from "../ranking/config";
+import { runRankingPipeline } from "../ranking/service";
+import { importAssistance, writeAssistanceTask } from "../research/assisted";
+import { loadResearchConfig } from "../research/config";
+import { assistedResearchResultSchema } from "../research/models";
+import { ResearchService } from "../research/service";
+import { loadReviewConfig } from "../review/config";
+import { FinalApprovalService } from "../review/final-approval";
+import {
+  editorialReviewImportSchema,
+  revisionResultSchema,
+} from "../review/models";
+import { PreviewService } from "../review/preview";
+import { createRemotePreviewUrl } from "../review/preview-url";
+import { RevisionService } from "../review/revision";
+import { ReviewService } from "../review/service";
+import { FinalReviewTelegramController } from "../review/telegram";
+import {
+  createRepositoryComposition,
+  type RepositoryComposition,
+} from "../storage/composition";
+import { requireTelegramRuntimeConfig } from "../telegram/config";
+import { TopicApprovalService } from "../telegram/service";
+import { TelegramBotApiClient } from "../telegram/telegram-client";
+import { loadWritingConfig } from "../writing/config";
+import { articleWritingResultSchema } from "../writing/models";
+import { WritingService } from "../writing/service";
+import { sha256 } from "../writing/task";
+import type { AutomationJob } from "./models";
+import { reconcileAutomationQueue } from "./reconcile";
+import { PostgresAutomationJobRepository } from "./repository";
+
+export class AutomationWorker {
+  private readonly jobs: PostgresAutomationJobRepository;
+  private readonly provider: LLMProvider;
+  private readonly workerId: string;
+  private readonly leaseMs: number;
+  private readonly telegramConfig;
+  private readonly telegram: TelegramBotApiClient;
+
+  constructor(
+    private readonly composition: RepositoryComposition,
+    private readonly environment: NodeJS.ProcessEnv = process.env,
+    options: { provider?: LLMProvider; workerId?: string } = {},
+  ) {
+    if (!composition.sql)
+      throw new Error("Automation worker requires PostgreSQL storage");
+    this.jobs = new PostgresAutomationJobRepository(composition.sql);
+    this.provider =
+      options.provider ??
+      createConfiguredLlmProvider(environment, composition.sql);
+    this.workerId =
+      options.workerId ?? `worker-${process.env.GITHUB_RUN_ID ?? process.pid}`;
+    this.leaseMs = Number(environment.AUTOMATION_LEASE_MINUTES ?? 30) * 60_000;
+    this.telegramConfig = requireTelegramRuntimeConfig(environment, "api");
+    this.telegram = new TelegramBotApiClient({
+      botToken: this.telegramConfig.TELEGRAM_BOT_TOKEN as string,
+    });
+  }
+
+  async reconcile() {
+    if (!this.composition.sql)
+      throw new Error("PostgreSQL storage is required");
+    return reconcileAutomationQueue(this.composition.sql, this.jobs);
+  }
+
+  async drain(
+    maximum = Number(this.environment.AUTOMATION_MAX_JOBS_PER_RUN ?? 4),
+  ) {
+    const completed: { id: string; type: string; status: string }[] = [];
+    await this.jobs.heartbeatComponent({
+      component: "worker",
+      instanceId: this.workerId,
+      status: "healthy",
+      details: { phase: "starting" },
+      observedAt: new Date().toISOString(),
+    });
+    for (let count = 0; count < maximum; count += 1) {
+      const job = await this.jobs.claim(this.workerId, this.leaseMs);
+      if (!job) break;
+      const timer = setInterval(
+        () => void this.jobs.heartbeat(job.id, this.workerId, this.leaseMs),
+        Math.min(60_000, this.leaseMs / 3),
+      );
+      timer.unref();
+      try {
+        const result = await this.run(job);
+        await this.jobs.succeed(job.id, this.workerId, result);
+        completed.push({ id: job.id, type: job.type, status: "succeeded" });
+      } catch (error) {
+        const classification = classify(error);
+        const failed = await this.jobs.fail(
+          job.id,
+          this.workerId,
+          classification,
+        );
+        completed.push({ id: job.id, type: job.type, status: failed.status });
+        await this.notifyFailure(
+          job,
+          failed.diagnosticId ?? "unknown",
+          classification.summary,
+        );
+      } finally {
+        clearInterval(timer);
+      }
+      await this.reconcile();
+    }
+    await this.jobs.heartbeatComponent({
+      component: "worker",
+      instanceId: this.workerId,
+      status: "healthy",
+      details: { completed: completed.length },
+      observedAt: new Date().toISOString(),
+    });
+    return completed;
+  }
+
+  private run(job: AutomationJob): Promise<Record<string, unknown>> {
+    switch (job.type) {
+      case "discovery":
+        return this.discovery(job);
+      case "research":
+        return this.research(job);
+      case "writing":
+        return this.writing(job);
+      case "editorial_review":
+        return this.review(job);
+      case "revision":
+        return this.revision(job);
+      case "publication":
+        return this.publication(job);
+      case "reconciliation":
+        return this.reconcile();
+      default:
+        throw new BlockedAutomationError(
+          `Unsupported worker job type: ${job.type}`,
+        );
+    }
+  }
+
+  private async discovery(job: AutomationJob) {
+    const runId = stringPayload(job, "runId");
+    const sources = await loadSourceConfig(
+      this.environment.DISCOVERY_CONFIG ??
+        "automation/config/sources.example.yaml",
+    );
+    await runDiscovery({
+      runId,
+      config: sources,
+      adapters: [new FeedAdapter(), new HackerNewsAdapter()],
+      fetch,
+      artifactRepository: this.composition.artifacts,
+      lookbackHours: Number(this.environment.DISCOVERY_LOOKBACK_HOURS ?? 72),
+    });
+    if (!this.composition.sql)
+      throw new Error("PostgreSQL storage is required");
+    const ranking = await runRankingPipeline({
+      runId,
+      config: await loadRankingConfig(
+        this.environment.RANKING_CONFIG ??
+          "automation/config/ranking.example.yaml",
+      ),
+      history: new PostgresHistoryRepository(this.composition.sql),
+      artifactRepository: this.composition.artifacts,
+    });
+    const topics = new TopicApprovalService({
+      adapter: this.telegram,
+      repository: this.composition.telegram,
+      catalog: this.composition.catalog,
+      config: this.telegramConfig,
+    });
+    for (const chatId of this.telegramConfig.TELEGRAM_ALLOWED_CHAT_IDS)
+      await topics.showTopics(chatId, runId, true);
+    return {
+      runId,
+      ranked: ranking.ranked.length,
+      notifiedChats: this.telegramConfig.TELEGRAM_ALLOWED_CHAT_IDS.length,
+    };
+  }
+
+  private async research(job: AutomationJob) {
+    const eventId = stringPayload(job, "eventId");
+    const config = await loadResearchConfig(
+      this.environment.RESEARCH_CONFIG ??
+        "automation/config/research.example.yaml",
+    );
+    const repositories = this.composition.research;
+    const service = new ResearchService({
+      events: repositories.events,
+      jobs: repositories.jobs,
+      packets: repositories.packets,
+      sources: repositories.sources,
+      cache: repositories.cache,
+      extensions: repositories.extensions,
+      catalog: this.composition.catalog,
+      config,
+      workerId: this.workerId,
+    });
+    let packet = await service.process(eventId);
+    if (!packet) {
+      const event = await repositories.events.get(eventId);
+      packet = event
+        ? await repositories.packets.get(event.topicId)
+        : undefined;
+    }
+    if (!packet) throw new Error("Research produced no durable packet");
+    if (packet.status === "awaiting_assisted_synthesis") {
+      await writeAssistanceTask(
+        packet,
+        this.environment.RESEARCH_TASK_DIRECTORY ?? "data/tasks/research",
+        "prompts/research-synthesis.md",
+        repositories.tasks,
+      );
+      const task = await repositories.tasks.readInput(
+        packet.topicId,
+        packet.version,
+      );
+      const generated = await this.provider.generate({
+        jobId: job.id,
+        stage: "research",
+        system:
+          "Synthesize only the supplied evidence. Every interpretation or prediction must cite existing source and excerpt IDs. Preserve unresolved uncertainty.",
+        task: withSchema(task, assistedResearchResultSchema, {
+          generatedAt: new Date().toISOString(),
+        }),
+        schema: assistedResearchResultSchema,
+      });
+      packet = await withTemporaryJson(generated.value, (path) =>
+        importAssistance(
+          path,
+          repositories.packets,
+          repositories.events,
+          undefined,
+          repositories.imports,
+        ),
+      );
+    }
+    if (packet.status !== "ready" || !packet.sufficient)
+      throw new BlockedAutomationError(
+        `Research blocked: ${packet.blockingReasons.join("; ") || "evidence threshold was not met"}`,
+      );
+    return {
+      topicId: packet.topicId,
+      packetId: packet.id,
+      packetVersion: packet.version,
+      sourceCount: packet.sourceIndex.length,
+    };
+  }
+
+  private async writing(job: AutomationJob) {
+    const topicId = requiredTopic(job);
+    const researchVersion = numberPayload(job, "researchVersion");
+    const config = await loadWritingConfig(
+      this.environment.WRITING_CONFIG ??
+        "automation/config/writing.example.yaml",
+    );
+    const repositories = this.composition.writing;
+    const service = new WritingService({
+      packets: this.composition.research.packets,
+      jobs: repositories.jobs,
+      drafts: repositories.drafts,
+      quality: repositories.quality,
+      history: repositories.history,
+      tasks: repositories.tasks,
+      gates: repositories.gates,
+      config,
+      configHash: sha256(JSON.stringify(config)),
+      workerId: this.workerId,
+      paths: {
+        prompt: "prompts/article-writer.md",
+        audience: "brand/audience.md",
+        style: "brand/writing-style.md",
+        editorial: "brand/editorial-rules.md",
+        design: "brand/design-style.md",
+        template: "templates/article.mdx",
+      },
+    });
+    const prepared = await service.prepare(topicId, researchVersion);
+    const task = await repositories.tasks.readInput(topicId, researchVersion);
+    const generated = await this.provider.generate({
+      jobId: job.id,
+      stage: "writing",
+      system:
+        "Write one complete source-grounded article. Use citation markers exactly as required. Keep facts, analysis, opinion, and predictions distinct. Do not claim hands-on experience.",
+      task: withSchema(task, articleWritingResultSchema, {
+        taskHash: prepared.job.taskHash,
+      }),
+      schema: articleWritingResultSchema,
+    });
+    const imported = await withTemporaryJson(generated.value, (path) =>
+      service.import(topicId, researchVersion, path),
+    );
+    return {
+      topicId,
+      draftId: imported.draft.id,
+      draftVersion: imported.draft.version,
+      quality: imported.quality?.status,
+    };
+  }
+
+  private async review(job: AutomationJob) {
+    const topicId = requiredTopic(job);
+    const draftVersion = numberPayload(job, "draftVersion");
+    const services = await this.reviewServices();
+    const prepared = await services.review.prepare(topicId, draftVersion);
+    const task = await this.composition.review.tasks.readInput(
+      topicId,
+      draftVersion,
+    );
+    const generated = await this.provider.generate({
+      jobId: job.id,
+      stage: "editorial_review",
+      system:
+        "Perform a rigorous evidence-bound editorial review. Deterministic blockers are authoritative. Every issue ID must be deterministic-looking and all referenced source/claim IDs must already exist.",
+      task: withSchema(task, editorialReviewImportSchema, {
+        requiredIdentity: {
+          id: `review_${sha256(`${(task as { draftId?: string })?.draftId}:${draftVersion}`).slice(0, 24)}`,
+          taskHash: prepared.job.taskHash,
+          createdAt: new Date().toISOString(),
+        },
+      }),
+      schema: editorialReviewImportSchema,
+    });
+    const imported = await withTemporaryJson(generated.value, (path) =>
+      services.review.import(topicId, draftVersion, path),
+    );
+    if (imported.review.decision === "block")
+      throw new BlockedAutomationError(
+        `Editorial review blocked: ${imported.review.summary}`,
+      );
+    if (imported.review.decision === "revise") {
+      const issueIds = imported.review.issues
+        .filter((issue) => issue.status === "open")
+        .map((issue) => issue.id);
+      await services.revision.prepare(topicId, draftVersion, issueIds, {
+        origin: "editorial_review",
+      });
+      return {
+        topicId,
+        decision: imported.review.decision,
+        revisionQueued: true,
+        issueCount: issueIds.length,
+      };
+    }
+    await services.preview.create(topicId, draftVersion);
+    for (const [
+      index,
+      chatId,
+    ] of this.telegramConfig.TELEGRAM_ALLOWED_CHAT_IDS.entries()) {
+      const userId =
+        this.telegramConfig.TELEGRAM_ALLOWED_USER_IDS[index] ??
+        this.telegramConfig.TELEGRAM_ALLOWED_USER_IDS[0];
+      if (userId) await services.controller.notify(topicId, chatId, userId);
+    }
+    return {
+      topicId,
+      decision: imported.review.decision,
+      reviewVersion: imported.review.version,
+      finalReviewSent: true,
+    };
+  }
+
+  private async revision(job: AutomationJob) {
+    const topicId = requiredTopic(job);
+    const draftVersion = numberPayload(job, "draftVersion");
+    const services = await this.reviewServices();
+    const task = await this.composition.review.revisions.readInput(
+      topicId,
+      draftVersion,
+    );
+    if (!task) throw new Error("Prepared revision input is missing");
+    const taskHash = sha256(`${JSON.stringify(task, null, 2)}\n`);
+    const generated = await this.provider.generate({
+      jobId: job.id,
+      stage: "revision",
+      system:
+        "Apply only the requested revision scope. Preserve protected claims and required source IDs. Return the complete revised MDX body when body changes are allowed.",
+      task: withSchema(task, revisionResultSchema, {
+        requiredTaskHash: taskHash,
+      }),
+      schema: revisionResultSchema,
+    });
+    const imported = await withTemporaryJson(generated.value, (path) =>
+      services.revision.import(topicId, draftVersion, path),
+    );
+    return {
+      topicId,
+      sourceDraftVersion: draftVersion,
+      draftVersion: imported.draft.version,
+      quality: imported.quality?.status,
+    };
+  }
+
+  private async publication(job: AutomationJob) {
+    const eventId = stringPayload(job, "eventId");
+    const config = await loadPublicationConfig(
+      this.environment.PUBLICATION_CONFIG ??
+        "automation/config/publication.production.yaml",
+    );
+    if (
+      config.mode !== "github" ||
+      config.branchStrategy !== "direct" ||
+      config.deploymentProvider !== "vercel_git" ||
+      config.deploymentPolicy !== "required"
+    )
+      throw new BlockedAutomationError(
+        "Production publication config must use github/direct/vercel_git/required",
+      );
+    const repository = new GitHubContentRepository({
+      token: this.environment.BLOG_GITHUB_TOKEN ?? "",
+      repository: this.environment.BLOG_REPOSITORY ?? config.repository,
+      defaultBranch:
+        this.environment.BLOG_DEFAULT_BRANCH ?? config.defaultBranch,
+    });
+    const deployment =
+      this.environment.VERCEL_DEPLOYMENT_METADATA_SOURCE === "github"
+        ? new VercelGitHubDeploymentProvider({
+            token: this.environment.BLOG_GITHUB_TOKEN ?? "",
+            repository: config.repository,
+          })
+        : new VercelGitDeploymentProvider({
+            token: this.environment.VERCEL_TOKEN ?? "",
+            projectId: this.environment.VERCEL_PROJECT_ID ?? "",
+            teamId: this.environment.VERCEL_TEAM_ID,
+          });
+    const service = new PublicationService({
+      events: this.composition.publication.events,
+      jobs: this.composition.publication.jobs,
+      publications: this.composition.publication.publications,
+      consumption: this.composition.publication.consumption,
+      deployments: this.composition.publication.deployments,
+      verifications: this.composition.publication.verifications,
+      drafts: this.composition.writing.drafts,
+      quality: this.composition.writing.quality,
+      packets: this.composition.research.packets,
+      reviews: this.composition.review.reviews,
+      approvals: this.composition.review.approvals,
+      gates: this.composition.review.gates,
+      repository,
+      deployment,
+      publicPage: new HttpPublicPageVerifier({ retries: 3 }),
+      config,
+      tasks: this.composition.publication.tasks,
+    });
+    const result = await service.event(eventId, this.workerId, false);
+    const publication = result.publication;
+    if (!publication) throw new Error("Publication produced no durable record");
+    if (publication.status !== "published")
+      throw new Error(`Publication ended in ${publication.status}`);
+    if (!this.composition.sql)
+      throw new Error("PostgreSQL storage is required");
+    const verified = await new DirectProductionVerificationService({
+      publications: this.composition.publication.publications,
+      artifacts: new PostgresDirectProductionArtifactRepository(
+        this.composition.sql,
+      ),
+      repository,
+      deployment,
+      config,
+    }).verify(publication.id);
+    for (const chatId of this.telegramConfig.TELEGRAM_ALLOWED_CHAT_IDS)
+      await this.telegram.sendStatusMessage(
+        chatId,
+        `<b>Published ✓</b>\n${escape(publication.title)}\n${escape(publication.canonicalUrl)}\nCommit ${publication.commitSha.slice(0, 12)} · production verified\n\nSocial distribution is available separately.`,
+      );
+    return {
+      publicationId: publication.id,
+      canonicalUrl: publication.canonicalUrl,
+      commitSha: publication.commitSha,
+      contentHash: publication.contentHash,
+      productionArtifactId: verified.artifact.id,
+      verified: true,
+    };
+  }
+
+  private async reviewServices() {
+    const config = await loadReviewConfig(
+      this.environment.REVIEW_CONFIG ?? "automation/config/review.example.yaml",
+    );
+    const writingConfig = await loadWritingConfig(
+      this.environment.WRITING_CONFIG ??
+        "automation/config/writing.example.yaml",
+    );
+    const review = new ReviewService({
+      drafts: this.composition.writing.drafts,
+      quality: this.composition.writing.quality,
+      packets: this.composition.research.packets,
+      jobs: this.composition.review.jobs,
+      reviews: this.composition.review.reviews,
+      tasks: this.composition.review.tasks,
+      approvals: this.composition.review.approvals,
+      gates: this.composition.review.gates,
+      config,
+      workerId: this.workerId,
+      paths: {
+        reviewPrompt: "prompts/editorial-review.md",
+        audience: "brand/audience.md",
+        style: "brand/writing-style.md",
+        editorial: "brand/editorial-rules.md",
+      },
+    });
+    const revision = new RevisionService({
+      drafts: this.composition.writing.drafts,
+      quality: this.composition.writing.quality,
+      history: this.composition.writing.history,
+      packets: this.composition.research.packets,
+      reviews: this.composition.review.reviews,
+      tasks: this.composition.review.revisions,
+      approvals: this.composition.review.approvals,
+      events: this.composition.review.events,
+      previews: this.composition.review.previews,
+      gates: this.composition.review.gates,
+      writingConfig,
+    });
+    const final = new FinalApprovalService({
+      drafts: this.composition.writing.drafts,
+      quality: this.composition.writing.quality,
+      packets: this.composition.research.packets,
+      reviews: this.composition.review.reviews,
+      revisions: this.composition.review.revisions,
+      approvals: this.composition.review.approvals,
+      events: this.composition.review.events,
+      gates: this.composition.review.gates,
+      config,
+    });
+    const preview = new PreviewService({
+      drafts: this.composition.writing.drafts,
+      previews: this.composition.review.previews,
+      gates: this.composition.review.gates,
+      config,
+    });
+    const controller = new FinalReviewTelegramController({
+      service: final,
+      revision,
+      reviews: this.composition.review.reviews,
+      drafts: this.composition.writing.drafts,
+      quality: this.composition.writing.quality,
+      previews: this.composition.review.previews,
+      approvals: this.composition.review.approvals,
+      conversations: this.composition.review.conversations,
+      adapter: this.telegram,
+      callbackSecret: this.telegramConfig.callbackSecret,
+      config,
+      previewUrl: (value) => createRemotePreviewUrl(value, this.environment),
+    });
+    return { review, revision, final, preview, controller };
+  }
+
+  private async notifyFailure(
+    job: AutomationJob,
+    diagnosticId: string,
+    summary: string,
+  ) {
+    const safe = summary
+      .replace(/https?:\/\/[^\s]+/g, "[redacted URL]")
+      .slice(0, 500);
+    for (const chatId of this.telegramConfig.TELEGRAM_ALLOWED_CHAT_IDS)
+      await this.telegram
+        .sendStatusMessage(
+          chatId,
+          `<b>${escape(job.type)} failed</b>\n${escape(safe)}\nReference: ${escape(diagnosticId)}\nUse /retry ${job.id} after correcting readiness, or /system_status.`,
+        )
+        .catch(() => undefined);
+  }
+}
+
+export async function runAutomationWorker(
+  environment: NodeJS.ProcessEnv = process.env,
+) {
+  const composition = createRepositoryComposition(environment);
+  try {
+    await composition.verify();
+    const worker = new AutomationWorker(composition, environment);
+    await worker.reconcile();
+    return await worker.drain();
+  } finally {
+    await composition.close();
+  }
+}
+
+class BlockedAutomationError extends Error {}
+
+function classify(error: unknown) {
+  const summary =
+    error instanceof Error ? error.message : "Unknown automation failure";
+  const missingCredential =
+    /(?:required|not configured|missing).*(?:key|token|credential)|GOOGLE_AI_API_KEY/i.test(
+      summary,
+    );
+  const blocked = error instanceof BlockedAutomationError || missingCredential;
+  const nonRetryable =
+    /(?:identity|snapshot hash|unexpected|collision|unsafe|not eligible|maximum attempts)/i.test(
+      summary,
+    );
+  return {
+    code: blocked
+      ? "READINESS_BLOCKED"
+      : nonRetryable
+        ? "SAFETY_REJECTED"
+        : "TRANSIENT_FAILURE",
+    summary,
+    retryable: !blocked && !nonRetryable,
+    blocked,
+  };
+}
+
+function withSchema<T>(
+  task: unknown,
+  schema: z.ZodType<T>,
+  extra: Record<string, unknown>,
+) {
+  return {
+    task,
+    ...extra,
+    outputJsonSchema: z.toJSONSchema(schema, { target: "draft-2020-12" }),
+  };
+}
+
+async function withTemporaryJson<T>(
+  value: unknown,
+  operation: (path: string) => Promise<T>,
+) {
+  const directory = await mkdtemp(join(tmpdir(), "acm-automation-"));
+  const path = join(directory, "result.json");
+  try {
+    await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, {
+      mode: 0o600,
+    });
+    return await operation(path);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+function stringPayload(job: AutomationJob, key: string) {
+  const value = job.payload[key];
+  if (typeof value !== "string" || !value)
+    throw new Error(`Automation payload is missing ${key}`);
+  return value;
+}
+
+function numberPayload(job: AutomationJob, key: string) {
+  const value = job.payload[key];
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1)
+    throw new Error(`Automation payload is missing ${key}`);
+  return value;
+}
+
+function requiredTopic(job: AutomationJob) {
+  if (!job.topicId) throw new Error("Automation job is missing topic lineage");
+  return job.topicId;
+}
+
+function escape(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
