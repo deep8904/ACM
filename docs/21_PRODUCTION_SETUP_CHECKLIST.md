@@ -19,7 +19,7 @@ Configure the ACM repository's protected `production` environment with:
 - `BLOG_GITHUB_TOKEN` scoped to `deep8904/Deep-Blog` Contents read/write, Metadata read, and Deployments read
 - `GOOGLE_AI_API_KEY`, `PREVIEW_SIGNING_SECRET`, `CRON_SECRET`
 
-Set `CONTROL_PLANE_ORIGIN` as a GitHub environment variable. The checked-in `automation-worker.yml` is the primary scheduler and runs every 15 minutes. It handles migration checks, daily discovery, reconciliation, leases, retries, and long-running stages. Its concurrency guard prevents overlapping workers, and `workflow_dispatch` provides a safe manual trigger.
+Set `CONTROL_PLANE_ORIGIN` and `SITE_ORIGIN` as GitHub environment variables. `SITE_ORIGIN` must be the permanent public blog origin. The checked-in `automation-worker.yml` is the primary scheduler and runs every 15 minutes. It handles migration checks, daily discovery, reconciliation, leases, retries, and long-running stages. Its concurrency guard prevents overlapping workers, and `workflow_dispatch` provides a safe manual trigger.
 
 ## 3. Vercel control plane
 
