@@ -41,6 +41,9 @@ describe("free hosted scheduler configuration", () => {
       "cancel-in-progress": false,
     });
     expect(jobs.drain.steps).toContainEqual({
+      run: "npm ci --include=dev",
+    });
+    expect(jobs.drain.steps).toContainEqual({
       name: "Reconcile and drain durable work",
       run: "npm run automation:worker",
     });
