@@ -7,6 +7,22 @@ const SCHEDULER_MAX_AGE_MS = 30 * 60 * 1000;
 const WORKER_MAX_AGE_MS = 30 * 60 * 1000;
 const WEBHOOK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+export const REQUIRED_PRODUCTION_ENVIRONMENT = [
+  "STORAGE_BACKEND",
+  "DATABASE_URL",
+  "TELEGRAM_BOT_TOKEN",
+  "TELEGRAM_WEBHOOK_SECRET",
+  "TELEGRAM_CALLBACK_SECRET",
+  "TELEGRAM_ALLOWED_CHAT_IDS",
+  "TELEGRAM_ALLOWED_USER_IDS",
+  "BLOG_GITHUB_TOKEN",
+  "BLOG_REPOSITORY",
+  "SITE_ORIGIN",
+  "CONTROL_PLANE_ORIGIN",
+  "CRON_SECRET",
+  "GOOGLE_AI_API_KEY",
+] as const;
+
 export function evaluateAutomationHeartbeats(
   heartbeats: SystemHeartbeat[],
   now = new Date(),
@@ -50,21 +66,9 @@ export async function productionReadiness(
   environment: NodeJS.ProcessEnv = process.env,
 ) {
   const database = await checkDatabaseHealth(sql);
-  const required = [
-    "DATABASE_URL",
-    "TELEGRAM_BOT_TOKEN",
-    "TELEGRAM_WEBHOOK_SECRET",
-    "TELEGRAM_CALLBACK_SECRET",
-    "TELEGRAM_ALLOWED_CHAT_IDS",
-    "TELEGRAM_ALLOWED_USER_IDS",
-    "BLOG_GITHUB_TOKEN",
-    "BLOG_REPOSITORY",
-    "SITE_ORIGIN",
-    "CONTROL_PLANE_ORIGIN",
-    "CRON_SECRET",
-    "GOOGLE_AI_API_KEY",
-  ] as const;
-  const missing = required.filter((name) => !environment[name]);
+  const missing = REQUIRED_PRODUCTION_ENVIRONMENT.filter(
+    (name) => !environment[name],
+  );
   const jobs = new PostgresAutomationJobRepository(sql);
   const heartbeats = await jobs.heartbeats();
   const automation = evaluateAutomationHeartbeats(heartbeats);
