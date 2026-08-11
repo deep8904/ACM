@@ -33,6 +33,13 @@ import { createTelegramWebhookHandler } from "./webhook";
 import { createRemotePreviewUrl } from "../review/preview-url";
 import { OperationsTelegramController } from "../orchestration/telegram";
 import { PostgresAutomationJobRepository } from "../orchestration/repository";
+import { researchConfigSchema } from "../research/config";
+import { ResearchService } from "../research/service";
+import {
+  PostgresResearchRemediationRepository,
+  ResearchRemediationService,
+  ResearchRemediationTelegramController,
+} from "../research/remediation";
 
 export function buildTelegramWebhookHandler(
   source: Readonly<Record<string, string | undefined>> = process.env,
@@ -203,11 +210,58 @@ export function buildTelegramWebhookHandler(
     postedRecords: composition.analytics.postedRecords,
     config: analyticsConfig,
   });
+  const topicControl: { current?: TopicApprovalService } = {};
+  const researchRemediation = composition.sql
+    ? (() => {
+        const researchConfig = researchConfigSchema.parse(
+          parse(
+            readFileSync(
+              /* turbopackIgnore: true */
+              source.RESEARCH_CONFIG ??
+                "automation/config/research.example.yaml",
+              "utf8",
+            ),
+          ),
+        );
+        const remediationRepository = new PostgresResearchRemediationRepository(
+          composition.sql,
+        );
+        const researchService = new ResearchService({
+          events: composition.research.events,
+          jobs: composition.research.jobs,
+          packets: composition.research.packets,
+          sources: composition.research.sources,
+          cache: composition.research.cache,
+          extensions: composition.research.extensions,
+          catalog: composition.catalog,
+          config: researchConfig,
+        });
+        return new ResearchRemediationTelegramController({
+          service: new ResearchRemediationService({
+            remediation: remediationRepository,
+            research: researchService,
+            packets: composition.research.packets,
+            events: composition.research.events,
+            topics: repository,
+            jobs: new PostgresAutomationJobRepository(composition.sql),
+            ttlMinutes: config.TELEGRAM_CONVERSATION_TTL_MINUTES,
+          }),
+          repository: remediationRepository,
+          adapter,
+          callbackSecret: config.callbackSecret,
+          cancelTopic: (topicId, update, actor) =>
+            requiredTopicControl(topicControl).cancel(topicId, update, actor),
+          refreshTopics: (chatId) =>
+            requiredTopicControl(topicControl).showTopics(chatId),
+        });
+      })()
+    : undefined;
   const service = new TopicApprovalService({
     adapter,
     repository,
     catalog: composition.catalog,
     config,
+    researchRemediation,
     operations: composition.sql
       ? new OperationsTelegramController({
           sql: composition.sql,
@@ -252,6 +306,7 @@ export function buildTelegramWebhookHandler(
       previewUrl: (preview) => createRemotePreviewUrl(preview, source),
     }),
   });
+  topicControl.current = service;
   const handler = createTelegramWebhookHandler({
     secrets: config.webhookSecrets,
     service,
@@ -274,4 +329,9 @@ export function buildTelegramWebhookHandler(
       });
     return handler(request);
   };
+}
+
+function requiredTopicControl(value: { current?: TopicApprovalService }) {
+  if (!value.current) throw new Error("Telegram topic control is not ready");
+  return value.current;
 }

@@ -14,6 +14,7 @@ import {
   researchSourceSchema,
 } from "../models";
 import { ResearchService } from "../service";
+import type { ResearchFetch } from "../retrieve";
 import {
   FileResearchJobRepository,
   FileResearchPacketRepository,
@@ -51,6 +52,85 @@ const queue = {
 } as never;
 
 describe("research source extension", () => {
+  it("inspects an official owner without silently adding or escalating it", async () => {
+    const fixture = await createFixture();
+    const proposal = await fixture.service.inspectSource({
+      topicId,
+      url: fieldReference().url,
+    });
+    expect(proposal.proposedAuthority).toBe("primary");
+    expect(proposal.publisherOwner).toBe("github.com");
+    expect(proposal.sourceType).toBe("documentation");
+    expect((await fixture.packets.get(topicId))?.version).toBe(1);
+    expect(await fixture.sources.list(topicId)).toHaveLength(0);
+  });
+
+  it("keeps unknown ownership independent and rejects unsafe or duplicate URLs", async () => {
+    const fixture = await createFixture();
+    const proposal = await fixture.service.inspectSource({
+      topicId,
+      url: "https://example.net/report/copilot-metrics",
+    });
+    expect(proposal.proposedAuthority).toBe("independent");
+    await expect(
+      fixture.service.inspectSource({
+        topicId,
+        url: "http://127.0.0.1/private",
+      }),
+    ).rejects.toThrow(/private|local/);
+    await expect(
+      fixture.service.inspectSource({
+        topicId,
+        url: "file:///tmp/source",
+      }),
+    ).rejects.toThrow(/HTTP and HTTPS/);
+    await expect(
+      fixture.service.inspectSource({
+        topicId,
+        url: "https://github.blog/changelog/copilot-agent-activity",
+      }),
+    ).rejects.toThrow(/already in the latest/);
+  });
+
+  it.each([
+    ["rate limit", 429, /rate-limiting/],
+    ["forbidden", 403, /refused retrieval/],
+  ])(
+    "reports %s retrieval failures without persisting evidence",
+    async (_label, status, message) => {
+      const fixture = await createFixture(undefined, true, async (url) =>
+        url.endsWith("/robots.txt")
+          ? new Response("User-agent: *\nAllow: /", {
+              headers: { "content-type": "text/plain" },
+            })
+          : new Response("blocked", { status }),
+      );
+      await expect(
+        fixture.service.inspectSource({
+          topicId,
+          url: "https://example.net/source",
+        }),
+      ).rejects.toThrow(message);
+      expect(await fixture.sources.list(topicId)).toHaveLength(0);
+    },
+  );
+
+  it("reports robots exclusions without persisting evidence", async () => {
+    const fixture = await createFixture(undefined, true, async (url) =>
+      url.endsWith("/robots.txt")
+        ? new Response("User-agent: *\nDisallow: /", {
+            headers: { "content-type": "text/plain" },
+          })
+        : new Response("unused"),
+    );
+    await expect(
+      fixture.service.inspectSource({
+        topicId,
+        url: "https://example.net/source",
+      }),
+    ).rejects.toThrow(/robots/);
+  });
+
   it("extends a consumed topic twice without changing old versions or inflating publisher diversity", async () => {
     const fixture = await createFixture();
     const v1 = await fixture.packets.get(topicId, 1);
@@ -146,6 +226,7 @@ describe("research source extension", () => {
 async function createFixture(
   extensionOverride?: ResearchSourceExtensionRepository,
   consumed = true,
+  fetchOverride?: ResearchFetch,
 ) {
   const root = await mkdtemp(join(tmpdir(), "source-extension-"));
   const packets = new FileResearchPacketRepository(root);
@@ -182,15 +263,17 @@ async function createFixture(
     config: researchConfigSchema.parse({ mode: "assisted" }),
     now: () => new Date(now),
     lookup: async () => ["93.184.216.34"],
-    fetch: async (url) =>
-      url.endsWith("/robots.txt")
-        ? new Response("User-agent: *\nAllow: /", {
-            headers: { "content-type": "text/plain" },
-          })
-        : new Response(
-            "<html><title>GitHub Copilot usage metrics</title><body><p>The totals_by_3rd_party_agent field is an array of agent totals.</p><p>Each entry includes agent_id and agent_name values.</p><p>Reports include job-start counts and aggregated-report session counts.</p></body></html>",
-            { headers: { "content-type": "text/html" } },
-          ),
+    fetch:
+      fetchOverride ??
+      (async (url) =>
+        url.endsWith("/robots.txt")
+          ? new Response("User-agent: *\nAllow: /", {
+              headers: { "content-type": "text/plain" },
+            })
+          : new Response(
+              "<html><title>GitHub Copilot usage metrics</title><body><p>The totals_by_3rd_party_agent field is an array of agent totals.</p><p>Each entry includes agent_id and agent_name values.</p><p>Reports include job-start counts and aggregated-report session counts.</p></body></html>",
+              { headers: { "content-type": "text/html" } },
+            )),
   });
   return {
     service,

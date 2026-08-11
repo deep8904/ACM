@@ -37,9 +37,19 @@ Import validates topic/event/version identity, strict schema, duplicate claim ID
 
 ### Extending evidence on a consumed topic
 
-`research:add-source` is the only supported path for attaching new public evidence after an approved event has been consumed. It requires the existing topic, HTTPS URL, authority, source type, publisher name, and publisher-owner domain. The command validates URL ownership and authority combinations, rejects GitHub-owned documentation classified as independent, uses the normal DNS/redirect/robots/extraction safeguards, and atomically writes a new source plus a new immutable packet version. It never edits the approval event or an older packet.
+`research:add-source` is the underlying supported service path for attaching new public evidence after an approved event has been consumed. It requires the existing topic, public HTTP(S) URL, authority, source type, publisher name, and publisher-owner domain. The command validates URL ownership and authority combinations, rejects GitHub-owned documentation classified as independent, uses the normal DNS/redirect/robots/extraction safeguards, and atomically writes a new source plus a new immutable packet version. It never edits the approval event or an older packet.
 
 Exact duplicate requests are idempotent. The same URL with conflicting metadata is rejected. Publisher diversity is scored by ownership, so `github.blog` and `docs.github.com` count as one GitHub-owned group. An extracted extension packet waits for assisted synthesis and remains ineligible for writing until a later supported import reaches the unchanged sufficiency threshold.
+
+### Telegram-first blocked-research recovery
+
+Migration 019 adds an actor-scoped, expiring research-remediation conversation and an immutable remediation audit stream. When a durable automation research job blocks because primary evidence was not retrieved, Telegram sends a compact `Research blocked` card with `Add primary source`, `Change topic`, `Cancel`, and `Details` actions.
+
+`Add primary source` accepts one public HTTP(S) URL through the existing DNS, redirect, port, private-network, robots, size, and extraction safeguards. Retrieval inspects the publisher and ownership group but writes no source or packet. Telegram always presents the detected publisher, ownership group, proposed authority, and reason before classification. A primary classification requires the operator to tap `Confirm primary`; an unknown owner defaults to `Treat as independent` and is never silently promoted.
+
+Confirmation calls the same `ResearchService.extendSource` operation used by `research:add-source`. Its existing atomic extension repository supplies duplicate protection, immutable packet versioning, provenance, ownership validation, and content-hash identity. The webhook then enqueues an idempotent research-remediation automation job. The worker runs the existing Gemini synthesis/import path and unchanged sufficiency gates. A sufficient latest packet is discovered by the normal reconciler and queues writing; an insufficient result sends a new recovery card. No Telegram action in this flow approves or publishes an article.
+
+`Change topic` and `Cancel` reuse topic and automation-job cancellation semantics. They update mutable control state only; approved events, research packets, automation jobs, remediation events, and historical downstream records are retained.
 
 ## Commands
 
@@ -51,6 +61,8 @@ Exact duplicate requests are idempotent. The same URL with conflicting metadata 
 - `research:import -- --topic-id <topicId> --file <result.json>`: validate and import manual synthesis.
 - `research:retry -- --job-id <jobId>`: retry a failed job, or an assistance job whose immutable packet records a blocked/failed/unsupported retrieval. Healthy assistance jobs cannot be reclaimed.
 - `research:add-source -- --topic-id <topicId> --url <httpsUrl> --authority <classification> --source-type <type> --publisher <name> --publisher-owner <domain>`: safely extend the latest packet for an already-consumed, still-approved topic.
+
+The CLI source-extension command remains an operator/debugging fallback. Normal blocked-research recovery uses Telegram buttons and `/add_source <topicId>` only when the original card must be reopened.
 
 Pass `--fixtures tests/fixtures/research` to processing commands for offline HTTP fixtures. Fixture mode maps URL host/path to files and performs no network access.
 

@@ -26,6 +26,7 @@ import { z } from "zod";
 import { retrieveSafely, robotsAllows, type ResearchFetch } from "./retrieve";
 import { stable } from "./storage";
 import type { DnsLookup } from "../telegram/interfaces";
+import { validateManualUrl } from "../telegram/safe-url";
 
 export class ResearchService {
   constructor(
@@ -66,6 +67,93 @@ export class ResearchService {
       throw new Error("Only failed or retrieval-blocked jobs can be retried");
     return this.run(eventId, ["awaiting_assistance"]);
   }
+  async inspectSource(input: { topicId: string; url: string }) {
+    const request = z
+      .object({ topicId: z.string().min(1), url: z.string().min(1).max(2048) })
+      .strict()
+      .parse(input);
+    const canonicalUrl = await validateManualUrl(request.url, this.deps.lookup);
+    const base = await this.deps.packets.get(request.topicId);
+    if (!base) throw new Error("Research packet not found");
+    const event = await this.deps.events.get(base.approvedEventId);
+    const queue = await this.deps.events.queue(request.topicId);
+    if (
+      !event ||
+      event.status !== "ready" ||
+      !queue ||
+      queue.approvalStatus !== "approved" ||
+      !["ready_for_research", "awaiting_source"].includes(
+        queue.researchReadiness,
+      ) ||
+      (await this.deps.events.isCancelled(event)) ||
+      !(await this.deps.events.isConsumed(event.id))
+    )
+      throw new Error("Topic approval gate is not active");
+    const duplicate = base.sourceIndex.find((source) =>
+      [source.originalUrl, source.canonicalUrl, source.finalUrl].some(
+        (url) => normalizeUrl(url) === canonicalUrl,
+      ),
+    );
+    if (duplicate)
+      throw new ResearchSourceInspectionError(
+        "duplicate",
+        "That source URL is already in the latest research packet",
+      );
+    const owner = ownerForHost(new URL(canonicalUrl).hostname);
+    const sourceType = inferExtensionType(canonicalUrl);
+    const publisher = publisherForOwner(owner);
+    const proposedAuthority = ownershipMatchesTopic(base, owner)
+      ? ("primary" as const)
+      : ("independent" as const);
+    const metadata: ResearchSourceExtensionInput = {
+      topicId: request.topicId,
+      url: canonicalUrl,
+      authority: proposedAuthority,
+      sourceType:
+        proposedAuthority === "primary" ? sourceType : "technical_reporting",
+      publisher,
+      publisherOwner: owner,
+    };
+    const artifact = await this.collect(
+      event,
+      extensionItem(canonicalUrl, metadata, new Date().toISOString()),
+      metadata,
+      false,
+    );
+    if (artifact.source.extractionStatus !== "extracted") {
+      const warning = artifact.source.warnings.join("; ");
+      const kind = /robots/i.test(warning)
+        ? "robots"
+        : /HTTP 429/i.test(warning)
+          ? "rate_limited"
+          : /HTTP 403/i.test(warning)
+            ? "forbidden"
+            : "retrieval";
+      throw new ResearchSourceInspectionError(
+        kind,
+        kind === "robots"
+          ? "That page blocks automated retrieval through robots.txt"
+          : kind === "rate_limited"
+            ? "That page is rate-limiting retrieval (HTTP 429)"
+            : kind === "forbidden"
+              ? "That page refused retrieval (HTTP 403)"
+              : "That page could not be retrieved as usable evidence",
+      );
+    }
+    return {
+      canonicalUrl,
+      title: artifact.source.title,
+      publisher,
+      publisherOwner: owner,
+      sourceType,
+      proposedAuthority,
+      reason:
+        proposedAuthority === "primary"
+          ? `The publisher domain matches the approved topic identity; operator confirmation is still required.`
+          : "Publisher ownership could not be tied deterministically to the topic, so independent is the safe default.",
+      contentHash: artifact.source.contentHash,
+    };
+  }
   async extendSource(input: ResearchSourceExtensionInput) {
     const request = researchSourceExtensionInputSchema.parse(input);
     const canonicalUrl = normalizeUrl(request.url);
@@ -79,7 +167,9 @@ export class ResearchService {
       event.topicId !== request.topicId ||
       !queue ||
       queue.approvalStatus !== "approved" ||
-      queue.researchReadiness !== "ready_for_research" ||
+      !["ready_for_research", "awaiting_source"].includes(
+        queue.researchReadiness,
+      ) ||
       queue.candidateId !== base.candidateId ||
       (await this.deps.events.isCancelled(event))
     )
@@ -831,8 +921,8 @@ function validateExtensionClassification(
   request: ResearchSourceExtensionInput,
 ) {
   const url = new URL(canonicalUrl);
-  if (url.protocol !== "https:")
-    throw new Error("Research source extensions require HTTPS URLs");
+  if (!new Set(["http:", "https:"]).has(url.protocol))
+    throw new Error("Research source extensions require HTTP(S) URLs");
   const owner = request.publisherOwner.toLowerCase();
   if (!hostnameBelongsToOwner(url.hostname, owner))
     throw new Error("Publisher ownership is not supported by the source URL");
@@ -908,4 +998,71 @@ function uniqueById<T extends { id: string }>(values: T[]) {
 
 function uniqueStrings(values: string[]) {
   return [...new Set(values)];
+}
+
+export class ResearchSourceInspectionError extends Error {
+  constructor(
+    readonly kind:
+      "duplicate" | "robots" | "rate_limited" | "forbidden" | "retrieval",
+    message: string,
+  ) {
+    super(message);
+    this.name = "ResearchSourceInspectionError";
+  }
+}
+
+function ownerForHost(hostname: string) {
+  const host = hostname.toLowerCase().replace(/^www\./, "");
+  if (host === "github.blog" || host.endsWith(".github.com"))
+    return "github.com";
+  const parts = host.split(".");
+  const publicSuffix = parts.slice(-2).join(".");
+  const multiPartSuffixes = new Set([
+    "co.uk",
+    "org.uk",
+    "com.au",
+    "net.au",
+    "co.jp",
+    "co.nz",
+    "com.br",
+    "com.sg",
+  ]);
+  return parts.length > 2
+    ? parts.slice(multiPartSuffixes.has(publicSuffix) ? -3 : -2).join(".")
+    : host;
+}
+
+function publisherForOwner(owner: string) {
+  const label = owner.split(".")[0] ?? owner;
+  return label
+    .split(/[-_]/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function inferExtensionType(url: string): ResearchSource["sourceType"] {
+  const parsed = new URL(url);
+  const path = parsed.pathname.toLowerCase();
+  if (parsed.hostname.startsWith("docs.")) return "documentation";
+  if (/\/(?:docs?|documentation)\//.test(path)) return "documentation";
+  if (/\/(?:support|help)\//.test(path)) return "support_document";
+  if (/\/(?:changelog|releases?)\//.test(path)) return "release_notes";
+  if (/\/(?:products?|store)\//.test(path)) return "product_page";
+  return "official_announcement";
+}
+
+function ownershipMatchesTopic(base: ResearchPacket, owner: string) {
+  if (
+    base.sourceIndex.some(
+      (source) =>
+        source.authority === "primary" &&
+        publisherOwnershipGroup(source) === owner,
+    )
+  )
+    return true;
+  const brand = owner.split(".")[0]?.replace(/[^a-z0-9]/g, "") ?? "";
+  const topic = `${base.approvedTitle} ${base.approvedAngle}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return brand.length >= 3 && topic.includes(brand);
 }

@@ -114,7 +114,26 @@ Store each request as an editorial instruction tied to the article version.
 
 Telegram may retry updates. Store `update_id` and callback IDs so repeated deliveries do not trigger duplicate research, publication, or commits.
 
-## 9. Milestone 3 implementation boundary
+## 9. Blocked research recovery
+
+Remediable evidence failures use a signed `q:` callback namespace and migration-019 durable conversation state. The state is scoped to the authorized chat/user plus the exact topic, approved event, automation job, and latest packet version. Callback signatures, global Telegram update/callback claims, state versions, and expiry jointly prevent tampering and replay.
+
+The primary flow is:
+
+```text
+Research blocked
+→ Add primary source
+→ paste a public URL
+→ review publisher / ownership / proposed authority
+→ Confirm primary or Treat as independent
+→ immutable packet extension
+→ Gemini synthesis
+→ unchanged evidence gates
+```
+
+HTTP 429, HTTP 403, robots exclusion, unsafe/private URLs, and duplicates produce concise operator messages with server-side diagnostic references. `/add_source <topicId>` and `/research_source <topicId>` reopen an eligible blocked flow; buttons remain the normal interface. `/queue` and `/status` display `awaiting_source` while the topic is blocked for operator evidence.
+
+## 10. Milestone 3 implementation boundary
 
 The implemented topic control layer is documented in `docs/12_TELEGRAM_TOPIC_APPROVAL.md`. Topic approval persists an unconsumed handoff event only. Research, draft controls, final review cards, final article approval, publishing, and social actions remain deferred and unavailable.
 

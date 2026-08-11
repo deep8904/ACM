@@ -136,6 +136,7 @@ export const topicQueueItemSchema = z.object({
   researchReadiness: z.enum([
     "blocked_pending_approval",
     "ready_for_research",
+    "awaiting_source",
     "rejected",
     "cancelled",
   ]),
