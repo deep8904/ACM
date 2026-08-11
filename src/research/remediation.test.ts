@@ -32,6 +32,48 @@ describe("Telegram research remediation", () => {
       "Cancel",
       "Details",
     ]);
+    for (const button of card?.buttons.flat() ?? [])
+      expect(
+        Buffer.byteLength(button.callbackData, "utf8"),
+      ).toBeLessThanOrEqual(64);
+  });
+
+  it.each(["Add primary source", "Change topic", "Cancel", "Details"])(
+    "immediately acknowledges %s before its response or side effect",
+    async (label) => {
+      const harness = createHarness();
+      const state = await harness.repository.save(baseState());
+      const callback = await blockedCallback(harness, state, label);
+      harness.adapter.calls.length = 0;
+
+      await harness.controller.processCallback(callbackUpdate(callback), actor);
+
+      expect(harness.adapter.calls[0]).toMatchObject({
+        method: "answerCallback",
+        callbackQueryId: "callback-1",
+      });
+    },
+  );
+
+  it("keeps every blocked, input, and classification callback within Telegram's byte limit", async () => {
+    const harness = createHarness();
+    const state = await harness.repository.save(baseState());
+    const add = await blockedCallback(harness, state, "Add primary source");
+    await harness.controller.processCallback(callbackUpdate(add), actor);
+    await harness.controller.processConversationText(
+      proposal().canonicalUrl,
+      messageUpdate(),
+      actor,
+    );
+
+    const callbackData = harness.adapter.calls.flatMap((call) =>
+      "card" in call
+        ? call.card.buttons.flat().map((button) => button.callbackData)
+        : [],
+    );
+    expect(callbackData.length).toBeGreaterThan(0);
+    for (const value of callbackData)
+      expect(Buffer.byteLength(value, "utf8")).toBeLessThanOrEqual(64);
   });
 
   it("authenticates callbacks, enforces expiry, and scopes them to the actor", async () => {
@@ -47,13 +89,13 @@ describe("Telegram research remediation", () => {
         callbackUpdate(`${callback.slice(0, -1)}x`),
         actor,
       ),
-    ).rejects.toThrow(/Invalid research recovery action/);
+    ).rejects.toThrow("This card is stale; request a new one.");
     await expect(
       harness.controller.processCallback(callbackUpdate(callback), {
         ...actor,
         userId: "201",
       }),
-    ).rejects.toThrow(/not available to this operator/);
+    ).rejects.toThrow("This card is stale; request a new one.");
     await harness.repository.save(
       researchRemediationSchema.parse({
         ...state,
@@ -69,7 +111,7 @@ describe("Telegram research remediation", () => {
     );
     await expect(
       harness.controller.processCallback(callbackUpdate(expired), actor),
-    ).rejects.toThrow(/expired/);
+    ).rejects.toThrow("This card is stale; request a new one.");
   });
 
   it("keeps URL input actor-scoped and requires explicit authority confirmation", async () => {
@@ -130,7 +172,7 @@ describe("Telegram research remediation", () => {
         callbackUpdate(callback, 2, "callback-2"),
         actor,
       ),
-    ).rejects.toThrow(/state changed/);
+    ).rejects.toThrow("This card is stale; request a new one.");
     expect(harness.service.confirm).toHaveBeenCalledTimes(1);
   });
 
