@@ -23,7 +23,18 @@ import type {
 import type { AutomationJob } from "../orchestration/models";
 import { automationKey } from "../orchestration/reconcile";
 import { PostgresAutomationJobRepository } from "../orchestration/repository";
-import { loadResearchHandoff } from "../orchestration/research-handoff";
+import {
+  InvalidResearchHandoffError,
+  loadResearchHandoff,
+} from "../orchestration/research-handoff";
+
+export interface ActionableResearchRecovery {
+  job: AutomationJob;
+  topicId: string;
+  title: string;
+  packetVersion: number;
+  reason: string;
+}
 
 const iso = z.string().datetime({ offset: true });
 const proposalSchema = z
@@ -202,7 +213,7 @@ export class ResearchRemediationService {
   ) {}
 
   async openBlocked(job: AutomationJob, actor: TelegramActor, reason?: string) {
-    const packet = await this.assertRecoverable(job);
+    const { packet } = await this.assertRecoverable(job);
     const now = this.now();
     const identity = hash(`${job.id}:${actor.chatId}:${actor.userId}`);
     const existing = await this.deps.remediation.getForActor(
@@ -265,6 +276,40 @@ export class ResearchRemediationService {
       throw new TelegramControlError(
         "invalid_state_transition",
         "That topic is not awaiting a research source.",
+        409,
+      );
+    return this.openBlocked(job, actor, job.failureSummary);
+  }
+
+  async listActionableBlocked(limit = 100) {
+    const jobs = await this.deps.jobs.list(["blocked"], limit);
+    const seenEvents = new Set<string>();
+    const actionable: ActionableResearchRecovery[] = [];
+    for (const job of jobs) {
+      const context = await this.recoverableContext(job);
+      if (!context || seenEvents.has(context.event.id)) continue;
+      seenEvents.add(context.event.id);
+      actionable.push({
+        job,
+        topicId: context.packet.topicId,
+        title: context.queue.candidateSnapshot.candidate.title,
+        packetVersion: context.packet.version,
+        reason: conciseReason(
+          job.failureSummary ??
+            context.packet.blockingReasons[0] ??
+            "Evidence is insufficient",
+        ),
+      });
+    }
+    return actionable;
+  }
+
+  async resume(jobId: string, actor: TelegramActor) {
+    const job = await this.deps.jobs.get(jobId);
+    if (!job || !(await this.recoverableContext(job)))
+      throw new TelegramControlError(
+        "invalid_state_transition",
+        "That research recovery is no longer available. Run /jobs again.",
         409,
       );
     return this.openBlocked(job, actor, job.failureSummary);
@@ -377,10 +422,15 @@ export class ResearchRemediationService {
     });
   }
 
-  private async assertRecoverable(job: AutomationJob) {
-    if (job.type !== "research" || job.status !== "blocked")
-      throw new Error("Automation job is not a blocked research job");
-    const event = await loadResearchHandoff(job, this.deps.events);
+  private async recoverableContext(job: AutomationJob) {
+    if (job.type !== "research" || job.status !== "blocked") return;
+    let event;
+    try {
+      event = await loadResearchHandoff(job, this.deps.events);
+    } catch (error) {
+      if (error instanceof InvalidResearchHandoffError) return;
+      throw error;
+    }
     const packet = await this.deps.packets.get(event.topicId);
     if (
       !packet ||
@@ -391,7 +441,7 @@ export class ResearchRemediationService {
       ) &&
         typeof job.payload.remediationId !== "string")
     )
-      throw new Error("Research block is not eligible for source remediation");
+      return;
     const queue = await this.deps.events.queue(event.topicId);
     if (
       !queue ||
@@ -401,8 +451,15 @@ export class ResearchRemediationService {
       ) ||
       !(await this.deps.events.isConsumed(event.id))
     )
-      throw new Error("Research lineage is not active and consumed");
-    return packet;
+      return;
+    return { event, packet, queue };
+  }
+
+  private async assertRecoverable(job: AutomationJob) {
+    const context = await this.recoverableContext(job);
+    if (!context)
+      throw new Error("Research block is not eligible for source remediation");
+    return context;
   }
 
   private async assertCurrent(
@@ -434,7 +491,13 @@ export class ResearchRemediationService {
 const commands = new Set(["/add_source", "/research_source"]);
 const staleCardMessage = "This card is stale; request a new one.";
 type CallbackAction =
-  "add" | "change" | "cancel" | "primary" | "independent" | "details";
+  | "add"
+  | "change"
+  | "cancel"
+  | "primary"
+  | "independent"
+  | "details"
+  | "resume";
 
 export class ResearchRemediationTelegramController implements FinalReviewControl {
   constructor(
@@ -490,6 +553,22 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
     );
   }
 
+  async showActionableJobs(actor: TelegramActor) {
+    const actionable = await this.deps.service.listActionableBlocked();
+    if (!actionable.length) {
+      await this.deps.adapter.sendStatusMessage(
+        actor.chatId,
+        "<b>No actionable automation jobs</b>\nUse /jobs all to view automation history.",
+      );
+      return;
+    }
+    for (const item of actionable)
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        resumeCard(item, actor, this.deps.callbackSecret),
+      );
+  }
+
   async processCallback(update: TelegramUpdate, actor: TelegramActor) {
     const query = update.callback_query;
     if (!query?.data)
@@ -499,13 +578,22 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       );
     let parsed: ReturnType<typeof parseCallback>;
     try {
-      parsed = parseCallback(query.data, this.deps.callbackSecret);
+      parsed = parseCallback(query.data, this.deps.callbackSecret, actor);
     } catch (error) {
       if (error instanceof RemediationCallbackError)
         this.logStale(error.condition, {
           callbackBytes: Buffer.byteLength(query.data, "utf8"),
         });
       throw error;
+    }
+    if (parsed.action === "resume") {
+      await this.deps.adapter.answerCallback(query.id);
+      const state = await this.deps.service.resume(parsed.jobId, actor);
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        blockedCard(state, this.deps.callbackSecret),
+      );
+      return;
     }
     const state = await this.deps.repository.getByShortId(parsed.shortId);
     if (!state) {
@@ -649,6 +737,25 @@ function blockedCard(state: ResearchRemediation, secret: string) {
   };
 }
 
+function resumeCard(
+  item: ActionableResearchRecovery,
+  actor: TelegramActor,
+  secret: string,
+) {
+  return {
+    topicId: item.topicId,
+    text: `<b>Research needs your input</b>\n${escape(item.title)}\n\nReason: ${escape(item.reason)}\nResearch packet: v${item.packetVersion}`,
+    buttons: [
+      [
+        {
+          text: "Resume research",
+          callbackData: createResumeCallback(item.job.id, actor, secret),
+        },
+      ],
+    ],
+  };
+}
+
 function classificationCard(state: ResearchRemediation, secret: string) {
   const proposal = state.proposal;
   if (!proposal) throw new Error("Source proposal is missing");
@@ -673,7 +780,7 @@ function inputCard(state: ResearchRemediation, secret: string) {
 
 function button(
   text: string,
-  action: CallbackAction,
+  action: Exclude<CallbackAction, "resume">,
   state: ResearchRemediation,
   secret: string,
 ) {
@@ -684,7 +791,7 @@ function button(
 }
 
 function createCallback(
-  action: CallbackAction,
+  action: Exclude<CallbackAction, "resume">,
   shortId: string,
   version: number,
   secret: string,
@@ -701,7 +808,33 @@ function createCallback(
   return `${payload}:${sign(payload, secret)}`;
 }
 
-function parseCallback(value: string, secret: string) {
+function createResumeCallback(
+  jobId: string,
+  actor: TelegramActor,
+  secret: string,
+) {
+  const suffix = jobId.replace(/^automationjob_/, "");
+  const payload = `q:r:${suffix}`;
+  return `${payload}:${sign(`${payload}:${actor.chatId}:${actor.userId}`, secret)}`;
+}
+
+function parseCallback(value: string, secret: string, actor: TelegramActor) {
+  const resume = /^q:r:([a-f0-9]{24}):([A-Za-z0-9_-]{10})$/.exec(value);
+  if (resume) {
+    const [, suffix, provided] = resume;
+    const payload = `q:r:${suffix}`;
+    if (
+      !safeEqual(
+        sign(`${payload}:${actor.chatId}:${actor.userId}`, secret),
+        provided ?? "",
+      )
+    )
+      throw new RemediationCallbackError("signature_mismatch");
+    return {
+      action: "resume" as const,
+      jobId: `automationjob_${suffix}`,
+    };
+  }
   const match = /^q:([ahcpid]):([a-f0-9]{12}):(\d+):([A-Za-z0-9_-]{10})$/.exec(
     value,
   );
@@ -720,7 +853,7 @@ function parseCallback(value: string, secret: string) {
   }[code ?? ""];
   if (!action) throw new RemediationCallbackError("unregistered_action");
   return {
-    action: action as CallbackAction,
+    action: action as Exclude<CallbackAction, "resume">,
     shortId: shortId as string,
     version: Number(rawVersion),
   };

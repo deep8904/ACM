@@ -270,6 +270,7 @@ export function buildTelegramWebhookHandler(
           sql: composition.sql,
           adapter,
           environment: source as NodeJS.ProcessEnv,
+          researchRecovery: researchRemediation,
         })
       : undefined,
     analytics: new AnalyticsTelegramController({

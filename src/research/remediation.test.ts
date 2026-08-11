@@ -128,6 +128,109 @@ describe("Telegram research remediation", () => {
       ).toBeLessThanOrEqual(64);
   });
 
+  it("hides malformed and orphan history while surfacing the canonical recoverable lineage", async () => {
+    const harness = createActionableHarness();
+
+    await harness.controller.showActionableJobs(actor);
+
+    const cards = harness.adapter.calls.filter(
+      (call) => call.method === "sendFinalReviewCard",
+    );
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      card: {
+        topicId: baseState().topicId,
+        text: expect.stringContaining("NuPhy Air75 V3"),
+        buttons: [[{ text: "Resume research" }]],
+      },
+    });
+    const callback = requiredButton(harness.adapter, "Resume research");
+    expect(Buffer.byteLength(callback, "utf8")).toBeLessThanOrEqual(64);
+    expect(
+      await harness.repository.getForActor(actor.chatId, actor.userId),
+    ).toBeUndefined();
+    expect(harness.jobs.retry).not.toHaveBeenCalled();
+    expect(harness.research.extendSource).not.toHaveBeenCalled();
+  });
+
+  it("turns an expired card into a fresh actor-scoped recovery card through /jobs Resume", async () => {
+    const harness = createActionableHarness();
+    await harness.repository.save(
+      researchRemediationSchema.parse({
+        ...baseState(),
+        expiresAt: "2026-08-11T11:59:00.000Z",
+      }),
+    );
+    await harness.controller.showActionableJobs(actor);
+    const resume = requiredButton(harness.adapter, "Resume research");
+    harness.adapter.calls.length = 0;
+
+    await harness.controller.processCallback(callbackUpdate(resume), actor);
+
+    expect(harness.adapter.calls[0]).toMatchObject({
+      method: "answerCallback",
+      callbackQueryId: "callback-1",
+    });
+    const current = await harness.repository.getForActor("100", "200");
+    expect(current?.version).toBe(2);
+    expect(Date.parse(current?.expiresAt ?? "")).toBeGreaterThan(now.getTime());
+    const details = requiredButton(harness.adapter, "Details");
+    expect(details.split(":")[3]).toBe("2");
+    await expect(
+      harness.controller.processCallback(
+        callbackUpdate(details, 2, "callback-2"),
+        actor,
+      ),
+    ).resolves.toBeUndefined();
+    expect(harness.adapter.calls).toContainEqual(
+      expect.objectContaining({
+        method: "sendStatusMessage",
+        text: expect.stringContaining("Research recovery details"),
+      }),
+    );
+    expect(harness.jobs.retry).not.toHaveBeenCalled();
+    expect(harness.research.extendSource).not.toHaveBeenCalled();
+  });
+
+  it("keeps repeated Resume taps safe with one current version and stale older cards", async () => {
+    const harness = createActionableHarness();
+    await harness.controller.showActionableJobs(actor);
+    const resume = requiredButton(harness.adapter, "Resume research");
+    harness.adapter.calls.length = 0;
+
+    await harness.controller.processCallback(callbackUpdate(resume), actor);
+    const oldDetails = requiredButton(harness.adapter, "Details");
+    await harness.controller.processCallback(
+      callbackUpdate(resume, 2, "callback-2"),
+      actor,
+    );
+
+    expect((await harness.repository.getForActor("100", "200"))?.version).toBe(
+      2,
+    );
+    await expect(
+      harness.controller.processCallback(
+        callbackUpdate(oldDetails, 3, "callback-3"),
+        actor,
+      ),
+    ).rejects.toThrow("This card is stale; request a new one.");
+    expect(harness.jobs.retry).not.toHaveBeenCalled();
+    expect(harness.research.extendSource).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Resume button used by a different actor", async () => {
+    const harness = createActionableHarness();
+    await harness.controller.showActionableJobs(actor);
+    const resume = requiredButton(harness.adapter, "Resume research");
+
+    await expect(
+      harness.controller.processCallback(callbackUpdate(resume), {
+        ...actor,
+        userId: "201",
+      }),
+    ).rejects.toThrow("This card is stale; request a new one.");
+  });
+
   it.each(["Add primary source", "Change topic", "Cancel", "Details"])(
     "immediately acknowledges %s before its response or side effect",
     async (label) => {
@@ -380,6 +483,83 @@ function createIntegratedHarness() {
       refreshTopics: vi.fn(async () => undefined),
       now: () => now,
       logger,
+    }),
+  };
+}
+
+function createActionableHarness() {
+  const repository = new MemoryRepository();
+  const adapter = new RecordingTelegramAdapter();
+  const current = recoverableJob();
+  const malformed = {
+    ...current,
+    id: "automationjob_aaaaaaaaaaaaaaaaaaaaaaaa",
+    payload: {},
+  };
+  const orphanEventId = "event_bbbbbbbbbbbbbbbbbbbbbbbb";
+  const orphan = {
+    ...current,
+    id: "automationjob_cccccccccccccccccccccccc",
+    lineageKey: orphanEventId,
+    payload: { eventId: orphanEventId },
+  };
+  const olderCanonical = {
+    ...current,
+    id: "automationjob_dddddddddddddddddddddddd",
+  };
+  const packet = {
+    topicId: baseState().topicId,
+    approvedEventId: baseState().eventId,
+    version: 6,
+    sufficient: false,
+    blockingReasons: ["No primary source was retrieved"],
+  };
+  const queue = {
+    approvalStatus: "approved",
+    researchReadiness: "awaiting_source",
+    candidateSnapshot: {
+      candidate: { title: "NuPhy Air75 V3" },
+    },
+  };
+  const jobs = {
+    list: vi.fn(async () => [malformed, orphan, current, olderCanonical]),
+    get: vi.fn(async (id: string) => (id === current.id ? current : undefined)),
+    retry: vi.fn(),
+  };
+  const research = { extendSource: vi.fn() };
+  const service = new ResearchRemediationService({
+    remediation: repository,
+    research: research as never,
+    packets: { get: vi.fn(async () => packet) } as never,
+    events: {
+      get: vi.fn(async (id: string) =>
+        id === baseState().eventId
+          ? { id, topicId: baseState().topicId }
+          : undefined,
+      ),
+      queue: vi.fn(async () => queue),
+      isConsumed: vi.fn(async () => true),
+    } as never,
+    topics: {
+      getQueueItem: vi.fn(async () => queue),
+      saveQueueItem: vi.fn(),
+    } as never,
+    jobs: jobs as never,
+    now: () => now,
+  });
+  return {
+    repository,
+    adapter,
+    jobs,
+    research,
+    controller: new ResearchRemediationTelegramController({
+      service,
+      repository,
+      adapter,
+      callbackSecret: secret,
+      cancelTopic: vi.fn(async () => undefined),
+      refreshTopics: vi.fn(async () => undefined),
+      now: () => now,
     }),
   };
 }

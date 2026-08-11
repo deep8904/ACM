@@ -12,7 +12,8 @@ No terminal is needed.
 /drafts                 final article-review states
 /review <topic_id>      reopen final review
 /publications           publication states
-/jobs                   automation queue and failures
+/jobs                   actionable cards and research recovery
+/jobs all               recent history and diagnostics
 /retry <job_id>         retry failed/blocked work
 /cancel_job <job_id>    cancel queued work
 /system_status          production readiness
