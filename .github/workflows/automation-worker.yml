@@ -41,7 +41,7 @@ jobs:
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
       LLM_PROVIDER: gemini
       GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
-      GOOGLE_AI_MODEL: ${{ vars.GOOGLE_AI_MODEL || 'gemini-2.5-flash' }}
+      GOOGLE_AI_MODEL: ${{ vars.GOOGLE_AI_MODEL || 'gemini-3.6-flash' }}
       AUTOMATION_MAX_JOBS_PER_RUN: "4"
       AUTOMATION_LEASE_MINUTES: "30"
     steps:

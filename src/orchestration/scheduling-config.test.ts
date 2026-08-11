@@ -48,6 +48,9 @@ describe("free hosted scheduler configuration", () => {
       run: "npm run automation:worker",
     });
     expect(jobs.drain.env.SITE_ORIGIN).toBe("${{ vars.SITE_ORIGIN }}");
+    expect(jobs.drain.env.GOOGLE_AI_MODEL).toBe(
+      "${{ vars.GOOGLE_AI_MODEL || 'gemini-3.6-flash' }}",
+    );
   });
 
   it("creates one deterministic discovery identity per UTC day", () => {

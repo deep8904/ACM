@@ -243,9 +243,14 @@ export function createConfiguredLlmProvider(
     throw new Error(`Unsupported LLM_PROVIDER: ${provider}`);
   return new GeminiLLMProvider({
     apiKey: environment.GOOGLE_AI_API_KEY ?? "",
-    model: environment.GOOGLE_AI_MODEL ?? "gemini-3.6-flash",
+    model: resolveGeminiModel(environment.GOOGLE_AI_MODEL),
     sql,
   });
+}
+
+export function resolveGeminiModel(configuredModel: string | undefined) {
+  const model = configuredModel?.replace(/^models\//, "");
+  return !model || model === "gemini-2.5-flash" ? "gemini-3.6-flash" : model;
 }
 
 function stripCodeFence(value: string) {
