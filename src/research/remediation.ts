@@ -159,10 +159,12 @@ export class PostgresResearchRemediationRepository implements ResearchRemediatio
     }
     const rows = await this.sql<{ id: string }[]>`
       update content_machine.research_remediation_conversations
-      set packet_version=${item.packetVersion},state=${item.state},reason=${item.reason},
+      set id=${item.id},short_id=${item.shortId},topic_id=${item.topicId},
+        event_id=${item.eventId},job_id=${item.jobId},
+        packet_version=${item.packetVersion},state=${item.state},reason=${item.reason},
         version=${item.version},expires_at=${item.expiresAt},payload=${this.sql.json(toJsonValue(item))},
-        updated_at=${item.updatedAt}
-      where id=${item.id} and version=${expectedVersion}
+        created_at=${item.createdAt},updated_at=${item.updatedAt}
+      where chat_id=${item.chatId} and user_id=${item.userId} and version=${expectedVersion}
       returning id
     `;
     if (!rows[0])
@@ -203,6 +205,10 @@ export class ResearchRemediationService {
     const packet = await this.assertRecoverable(job);
     const now = this.now();
     const identity = hash(`${job.id}:${actor.chatId}:${actor.userId}`);
+    const existing = await this.deps.remediation.getForActor(
+      actor.chatId,
+      actor.userId,
+    );
     const value = researchRemediationSchema.parse({
       id: `remediation_${identity.slice(0, 24)}`,
       shortId: identity.slice(0, 12),
@@ -216,12 +222,15 @@ export class ResearchRemediationService {
       reason: conciseReason(
         reason ?? packet.blockingReasons[0] ?? "Evidence is insufficient",
       ),
-      createdAt: now.toISOString(),
+      createdAt:
+        existing?.id === `remediation_${identity.slice(0, 24)}`
+          ? existing.createdAt
+          : now.toISOString(),
       updatedAt: now.toISOString(),
       expiresAt: new Date(
         now.getTime() + (this.deps.ttlMinutes ?? 30) * 60_000,
       ).toISOString(),
-      version: 1,
+      version: (existing?.version ?? 0) + 1,
     });
     const queue = await this.deps.topics.getQueueItem(packet.topicId);
     if (queue && queue.researchReadiness !== "awaiting_source")
@@ -234,13 +243,13 @@ export class ResearchRemediationService {
         }),
         queue.version,
       );
-    await this.deps.remediation.save(value);
+    await this.deps.remediation.save(value, existing?.version);
     await this.deps.remediation.audit({
       remediationId: value.id,
       topicId: value.topicId,
       jobId: value.jobId,
       action: "opened",
-      dedupeKey: job.id,
+      dedupeKey: `${job.id}:${value.version}`,
       details: { packetVersion: packet.version, reason: value.reason },
     });
     return value;
@@ -441,6 +450,11 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       ) => Promise<void>;
       refreshTopics: (chatId: string) => Promise<void>;
       now?: () => Date;
+      logger?: (
+        level: "warn",
+        message: string,
+        details: Record<string, unknown>,
+      ) => void;
     },
   ) {}
 
@@ -483,18 +497,44 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
         "stale_callback",
         "Missing recovery action",
       );
-    const parsed = parseCallback(query.data, this.deps.callbackSecret);
+    let parsed: ReturnType<typeof parseCallback>;
+    try {
+      parsed = parseCallback(query.data, this.deps.callbackSecret);
+    } catch (error) {
+      if (error instanceof RemediationCallbackError)
+        this.logStale(error.condition, {
+          callbackBytes: Buffer.byteLength(query.data, "utf8"),
+        });
+      throw error;
+    }
     const state = await this.deps.repository.getByShortId(parsed.shortId);
-    if (
-      !state ||
-      state.chatId !== actor.chatId ||
-      state.userId !== actor.userId
-    )
+    if (!state) {
+      this.logStale("missing_durable_state", parsed);
       throw new TelegramControlError("stale_callback", staleCardMessage, 403);
-    if (state.version !== parsed.version)
+    }
+    if (state.chatId !== actor.chatId || state.userId !== actor.userId) {
+      this.logStale("actor_mismatch", {
+        ...parsed,
+        durableVersion: state.version,
+      });
+      throw new TelegramControlError("stale_callback", staleCardMessage, 403);
+    }
+    if (state.version !== parsed.version) {
+      this.logStale("version_mismatch", {
+        ...parsed,
+        durableVersion: state.version,
+        packetVersion: state.packetVersion,
+      });
       throw new TelegramControlError("stale_callback", staleCardMessage, 409);
-    if (Date.parse(state.expiresAt) <= this.now().getTime())
+    }
+    if (Date.parse(state.expiresAt) <= this.now().getTime()) {
+      this.logStale("expired", {
+        ...parsed,
+        durableVersion: state.version,
+        expiresAt: state.expiresAt,
+      });
       throw new TelegramControlError("stale_callback", staleCardMessage, 409);
+    }
     await this.deps.adapter.answerCallback(query.id);
     if (parsed.action === "add") {
       await this.promptForUrl(state);
@@ -581,6 +621,17 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
   private now() {
     return (this.deps.now ?? (() => new Date()))();
   }
+
+  private logStale(condition: string, details: Record<string, unknown>) {
+    const logger =
+      this.deps.logger ??
+      ((level: "warn", message: string, value: Record<string, unknown>) =>
+        console.warn(JSON.stringify({ level, message, ...value })));
+    logger("warn", "research_remediation_callback_rejected", {
+      condition,
+      ...details,
+    });
+  }
 }
 
 function blockedCard(state: ResearchRemediation, secret: string) {
@@ -654,12 +705,11 @@ function parseCallback(value: string, secret: string) {
   const match = /^q:([ahcpid]):([a-f0-9]{12}):(\d+):([A-Za-z0-9_-]{10})$/.exec(
     value,
   );
-  if (!match)
-    throw new TelegramControlError("stale_callback", staleCardMessage);
+  if (!match) throw new RemediationCallbackError("malformed");
   const [, code, shortId, rawVersion, provided] = match;
   const payload = `q:${code}:${shortId}:${rawVersion}`;
   if (!safeEqual(sign(payload, secret), provided ?? ""))
-    throw new TelegramControlError("stale_callback", staleCardMessage);
+    throw new RemediationCallbackError("signature_mismatch");
   const action = {
     a: "add",
     h: "change",
@@ -668,13 +718,34 @@ function parseCallback(value: string, secret: string) {
     i: "independent",
     d: "details",
   }[code ?? ""];
-  if (!action)
-    throw new TelegramControlError("stale_callback", staleCardMessage);
+  if (!action) throw new RemediationCallbackError("unregistered_action");
   return {
     action: action as CallbackAction,
     shortId: shortId as string,
     version: Number(rawVersion),
   };
+}
+
+class RemediationCallbackError extends TelegramControlError {
+  constructor(readonly condition: string) {
+    super("stale_callback", staleCardMessage);
+  }
+}
+
+export function researchRemediationCallbackSecret(botToken: string) {
+  return createHmac("sha256", botToken)
+    .update("research-remediation-callback-signing-v1")
+    .digest("base64url");
+}
+
+export function shouldIssueBlockedRemediationCard(
+  existing: ResearchRemediation | undefined,
+  now: Date,
+) {
+  if (!existing) return true;
+  return (
+    existing.version === 1 && Date.parse(existing.expiresAt) <= now.getTime()
+  );
 }
 
 function sign(value: string, secret: string) {

@@ -36,6 +36,8 @@ import {
   PostgresResearchRemediationRepository,
   ResearchRemediationService,
   ResearchRemediationTelegramController,
+  researchRemediationCallbackSecret,
+  shouldIssueBlockedRemediationCard,
 } from "../research/remediation";
 import { loadReviewConfig } from "../review/config";
 import { FinalApprovalService } from "../review/final-approval";
@@ -679,11 +681,15 @@ export class AutomationWorker {
         const userId =
           this.telegramConfig.TELEGRAM_ALLOWED_USER_IDS[index] ??
           this.telegramConfig.TELEGRAM_ALLOWED_USER_IDS[0];
-        if (
-          !userId ||
-          (await repository.getForJobActor(job.id, chatId, userId))
-        )
-          continue;
+        if (!userId) continue;
+        const existing = await repository.getForJobActor(
+          job.id,
+          chatId,
+          userId,
+        );
+        // Reissue one legacy v1 card after it expires. The newly issued card is
+        // v2, so later scheduled runs skip it and cannot create reminder spam.
+        if (!shouldIssueBlockedRemediationCard(existing, new Date())) continue;
         await controller.notifyBlocked(
           job,
           { chatId, userId, chatType: "private" },
@@ -726,7 +732,9 @@ export class AutomationWorker {
       }),
       repository,
       adapter: this.telegram,
-      callbackSecret: this.telegramConfig.callbackSecret,
+      callbackSecret: researchRemediationCallbackSecret(
+        this.telegramConfig.TELEGRAM_BOT_TOKEN as string,
+      ),
       cancelTopic: async () => {
         throw new Error("Cancellation is available through the webhook");
       },
