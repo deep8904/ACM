@@ -89,6 +89,11 @@ export interface ResearchRemediationRepository {
     chatId: string,
     userId: string,
   ): Promise<ResearchRemediation | undefined>;
+  getForJobActor(
+    jobId: string,
+    chatId: string,
+    userId: string,
+  ): Promise<ResearchRemediation | undefined>;
   save(
     value: ResearchRemediation,
     expectedVersion?: number,
@@ -121,6 +126,16 @@ export class PostgresResearchRemediationRepository implements ResearchRemediatio
     const rows = await this.sql<{ payload: unknown }[]>`
       select payload from content_machine.research_remediation_conversations
       where chat_id=${chatId} and user_id=${userId}
+    `;
+    return rows[0]
+      ? researchRemediationSchema.parse(rows[0].payload)
+      : undefined;
+  }
+
+  async getForJobActor(jobId: string, chatId: string, userId: string) {
+    const rows = await this.sql<{ payload: unknown }[]>`
+      select payload from content_machine.research_remediation_conversations
+      where job_id=${jobId} and chat_id=${chatId} and user_id=${userId}
     `;
     return rows[0]
       ? researchRemediationSchema.parse(rows[0].payload)
