@@ -673,7 +673,42 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       actor.userId,
     );
     if (!state || state.state !== "awaiting_url") return false;
-    const proposal = await this.deps.service.inspect(state, text);
+    let proposal: ResearchSourceProposal;
+    try {
+      proposal = await this.deps.service.inspect(state, text);
+    } catch (error) {
+      if (error instanceof TelegramControlError) throw error;
+      const diagnosticId = `diag_${hash(`${state.id}:continuation:${this.now().toISOString()}`).slice(0, 16)}`;
+      try {
+        await this.deps.repository.audit({
+          remediationId: state.id,
+          topicId: state.topicId,
+          jobId: state.jobId,
+          action: "source_inspection_failed",
+          diagnosticId,
+          dedupeKey: diagnosticId,
+          details: {
+            category: "internal",
+            errorName:
+              error instanceof Error ? error.name.slice(0, 100) : "unknown",
+          },
+        });
+      } catch (auditError) {
+        this.logContinuationFailure("diagnostic_write_failed", state, {
+          diagnosticId,
+          error: safeContinuationError(auditError),
+        });
+      }
+      this.logContinuationFailure("source_inspection_failed", state, {
+        diagnosticId,
+        error: safeContinuationError(error),
+      });
+      throw new TelegramControlError(
+        "invalid_url",
+        `I couldn't inspect that URL right now. The request is still active; try again or send another public URL. Reference: ${diagnosticId}`,
+        502,
+      );
+    }
     const next = await this.transition(state, "awaiting_classification", {
       proposal,
     });
@@ -725,6 +760,36 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       ...details,
     });
   }
+
+  private logContinuationFailure(
+    condition: string,
+    state: ResearchRemediation,
+    details: Record<string, unknown>,
+  ) {
+    const logger =
+      this.deps.logger ??
+      ((level: "warn", message: string, value: Record<string, unknown>) =>
+        console.warn(JSON.stringify({ level, message, ...value })));
+    logger("warn", "research_remediation_continuation_failed", {
+      condition,
+      remediationId: state.id,
+      topicId: state.topicId,
+      jobId: state.jobId,
+      state: state.state,
+      version: state.version,
+      ...details,
+    });
+  }
+}
+
+function safeContinuationError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/https?:\/\/[^\s]+/gi, "[REDACTED_URL]")
+    .replace(/(key|token|secret)=[^\s&]+/gi, "$1=<redacted>")
+    .replace(/bot\d{6,}:[A-Za-z0-9_-]+/g, "<redacted bot token>")
+    .replace(/\b-?\d{6,}\b/g, "<redacted id>")
+    .slice(0, 500);
 }
 
 function blockedCard(state: ResearchRemediation, secret: string) {

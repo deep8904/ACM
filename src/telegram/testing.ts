@@ -10,13 +10,20 @@ import { FileTopicCatalog } from "./catalog";
 import { requireTelegramRuntimeConfig } from "./config";
 import { FileTelegramRepository } from "./file-repository";
 import { RecordingTelegramAdapter } from "./recording-adapter";
-import { TopicApprovalService } from "./service";
+import {
+  TopicApprovalService,
+  type TopicApprovalServiceOptions,
+} from "./service";
 
 export const testNow = "2026-08-06T20:00:00.000Z";
 export const testChatId = 246810;
 export const testUserId = 135790;
 
-export async function createTelegramTestHarness() {
+export async function createTelegramTestHarness(
+  overrides: Partial<
+    Pick<TopicApprovalServiceOptions, "researchRemediation">
+  > = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "ai-content-telegram-"));
   const runsDirectory = join(root, "runs");
   const stateDirectory = join(root, "telegram");
@@ -69,6 +76,7 @@ export async function createTelegramTestHarness() {
     now: () => new Date(testNow),
     dnsLookup: async () => ["93.184.216.34"],
     logger: () => undefined,
+    ...overrides,
   });
   return {
     root,

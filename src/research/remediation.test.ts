@@ -4,6 +4,7 @@ import type { TelegramActor } from "../telegram/authorization";
 import { RecordingTelegramAdapter } from "../telegram/recording-adapter";
 import type { TelegramUpdate } from "../telegram/models";
 import { DurableApprovedEventError } from "./approved-event";
+import { TelegramControlError } from "../telegram/errors";
 import {
   ResearchRemediationService,
   ResearchRemediationTelegramController,
@@ -344,6 +345,92 @@ describe("Telegram research remediation", () => {
     ]);
   });
 
+  it("consumes one URL and leaves a deterministic non-consuming result for a second URL", async () => {
+    const harness = createHarness();
+    await harness.repository.save(awaitingUrlState());
+
+    await expect(
+      harness.controller.processConversationText(
+        "https://hacdias.com/nuphy-review",
+        messageUpdate(),
+        actor,
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      harness.controller.processConversationText(
+        "https://nuphy.com/official",
+        messageUpdate(),
+        actor,
+      ),
+    ).resolves.toBe(false);
+    expect(harness.service.inspect).toHaveBeenCalledTimes(1);
+    expect((await harness.repository.getForActor("100", "200"))?.state).toBe(
+      "awaiting_classification",
+    );
+  });
+
+  it("keeps the URL request active and reports a redacted diagnostic for unexpected inspection failures", async () => {
+    const harness = createHarness();
+    const audit = vi.spyOn(harness.repository, "audit");
+    await harness.repository.save(awaitingUrlState());
+    harness.service.inspect.mockRejectedValueOnce(
+      new Error(
+        "fetch failed https://example.com/path?token=secret-value actor 123456789",
+      ),
+    );
+
+    await expect(
+      harness.controller.processConversationText(
+        "https://example.com/path?token=secret-value",
+        messageUpdate(),
+        actor,
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_url",
+      message: expect.stringMatching(/request is still active.*Reference:/),
+    });
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "source_inspection_failed",
+        details: { category: "internal", errorName: "Error" },
+      }),
+    );
+    const diagnostic = harness.logger.mock.calls.find(
+      ([, message]) => message === "research_remediation_continuation_failed",
+    )?.[2];
+    expect(diagnostic?.error).toContain("[REDACTED_URL]");
+    expect(diagnostic?.error).not.toContain("secret-value");
+    expect(diagnostic?.error).not.toContain("123456789");
+    expect((await harness.repository.getForActor("100", "200"))?.state).toBe(
+      "awaiting_url",
+    );
+  });
+
+  it("preserves expected expired-state errors for the Telegram boundary", async () => {
+    const harness = createHarness();
+    await harness.repository.save(awaitingUrlState());
+    harness.service.inspect.mockRejectedValueOnce(
+      new TelegramControlError(
+        "stale_callback",
+        "This research recovery request expired. Open it again from /jobs.",
+        409,
+      ),
+    );
+
+    await expect(
+      harness.controller.processConversationText(
+        "https://nuphy.com/official",
+        messageUpdate(),
+        actor,
+      ),
+    ).rejects.toMatchObject({ code: "stale_callback" });
+    expect(harness.logger).not.toHaveBeenCalledWith(
+      "warn",
+      "research_remediation_continuation_failed",
+      expect.anything(),
+    );
+  });
+
   it("confirms once, creates the next packet through the service, and rejects replay", async () => {
     const harness = createHarness();
     await harness.repository.save(awaitingUrlState());
@@ -424,12 +511,14 @@ function createHarness() {
   };
   const cancelTopic = vi.fn(async () => undefined);
   const refreshTopics = vi.fn(async () => undefined);
+  const logger = vi.fn();
   return {
     repository,
     adapter,
     service,
     cancelTopic,
     refreshTopics,
+    logger,
     controller: new ResearchRemediationTelegramController({
       service: service as never,
       repository,
@@ -438,6 +527,7 @@ function createHarness() {
       cancelTopic,
       refreshTopics,
       now: () => now,
+      logger,
     }),
   };
 }
