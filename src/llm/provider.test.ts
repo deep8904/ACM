@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { GeminiLLMProvider, LlmProviderConfigurationError } from "./provider";
+import {
+  createConfiguredLlmProvider,
+  GeminiLLMProvider,
+  LlmProviderConfigurationError,
+} from "./provider";
 
 describe("GeminiLLMProvider", () => {
   it("retries a transient response and validates structured JSON", async () => {
@@ -68,6 +72,50 @@ describe("GeminiLLMProvider", () => {
     expect(result.providerVersion).toBe("gemini-2.5-flash-001");
   });
 
+  it("defaults production to the supported Gemini 3.6 Flash model", () => {
+    const provider = createConfiguredLlmProvider({
+      GOOGLE_AI_API_KEY: "test-key",
+      NODE_ENV: "test",
+    });
+    expect(provider.model).toBe("gemini-3.6-flash");
+    expect(geminiUrl(provider.model)).toBe(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=test-key",
+    );
+  });
+
+  it("omits sampling parameters deprecated by Gemini 3.6 Flash", async () => {
+    let requestBody: unknown;
+    const provider = new GeminiLLMProvider({
+      apiKey: "test-key",
+      model: "gemini-3.6-flash",
+      maximumAttempts: 1,
+      fetch: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body));
+        return Response.json({
+          candidates: [{ content: { parts: [{ text: '{"answer":"safe"}' }] } }],
+          modelVersion: "gemini-3.6-flash",
+        });
+      },
+    });
+    await provider.generate({
+      jobId: `automationjob_${"f".repeat(24)}`,
+      stage: "research",
+      system: "Return a test value.",
+      task: {},
+      schema: z.object({ answer: z.literal("safe") }).strict(),
+    });
+    expect(requestBody).toMatchObject({
+      generationConfig: {
+        responseMimeType: "application/json",
+        maxOutputTokens: 8192,
+      },
+    });
+    expect(
+      (requestBody as { generationConfig: Record<string, unknown> })
+        .generationConfig,
+    ).not.toHaveProperty("temperature");
+  });
+
   it("preserves a safe Gemini 404 diagnostic as a configuration failure", async () => {
     const provider = new GeminiLLMProvider({
       apiKey: "test-key",
@@ -129,3 +177,7 @@ describe("GeminiLLMProvider", () => {
     ).rejects.toThrow("structured output failed validation");
   });
 });
+
+function geminiUrl(model: string) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=test-key`;
+}
