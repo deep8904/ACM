@@ -11,6 +11,15 @@ excerptChars: 400
 totalExcerptChars: 3000
 cacheTtlHours: 24
 robotsCacheTtlHours: 24
+maxRetrievalAttempts: 3
+retryBaseDelayMs: 750
+retryMaxDelayMs: 5000
+retryInlineMaxDelayMs: 5000
+retryAfterMaxMs: 3600000
+hostRetryBudget: 4
+hostRetryWindowMinutes: 15
+hostCooldownMinutes: 30
+negativeCacheTtlMinutes: 30
 sufficiencyThreshold: 70
 abandonedClaimMinutes: 30
 userAgent: "AIContentMachine/0.4 (+local research)"

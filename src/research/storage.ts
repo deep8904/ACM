@@ -26,6 +26,7 @@ import {
   type ResearchPacket,
   type ResearchSource,
 } from "./models";
+import type { RetrievalDiagnosticCode } from "./retrieve";
 
 const consumedSchema = z.object({
   eventId: z.string(),
@@ -172,6 +173,128 @@ export class FileResearchSourceRepository
     await writeAtomicJson(
       join(this.root, "cache", "robots", `${hash(host)}.json`),
       { body, fetchedAt },
+    );
+  }
+  async claimRetrievalAttempt(input: {
+    host: string;
+    canonicalUrl: string;
+    attemptedAt: string;
+    budget: number;
+    windowMs: number;
+    cooldownMs: number;
+  }) {
+    const path = join(
+      this.root,
+      "cache",
+      "retrieval-hosts",
+      `${hash(input.host)}.json`,
+    );
+    const schema = z.object({
+      attemptCount: z.number().int().nonnegative(),
+      windowStartedAt: z.string().datetime({ offset: true }),
+      cooldownUntil: z.string().datetime({ offset: true }).optional(),
+    });
+    const old = await optional(path, schema);
+    const at = Date.parse(input.attemptedAt);
+    if (old?.cooldownUntil && Date.parse(old.cooldownUntil) > at)
+      return { allowed: false, retryAt: old.cooldownUntil };
+    const inWindow =
+      old && at - Date.parse(old.windowStartedAt) < input.windowMs;
+    const attemptCount = inWindow ? old.attemptCount + 1 : 1;
+    if (attemptCount > input.budget) {
+      const retryAt = new Date(at + input.cooldownMs).toISOString();
+      await writeAtomicJson(path, {
+        attemptCount,
+        windowStartedAt: inWindow ? old.windowStartedAt : input.attemptedAt,
+        cooldownUntil: retryAt,
+      });
+      return { allowed: false, retryAt };
+    }
+    await writeAtomicJson(path, {
+      attemptCount,
+      windowStartedAt: inWindow ? old.windowStartedAt : input.attemptedAt,
+    });
+    return { allowed: true };
+  }
+  async getRetrievalOutcome(canonicalUrl: string, at: string) {
+    const value = await optional(
+      join(
+        this.root,
+        "cache",
+        "retrieval-outcomes",
+        `${hash(canonicalUrl)}.json`,
+      ),
+      z.object({
+        code: z.enum([
+          "429_retry_after",
+          "429_cooldown",
+          "robots_denied",
+          "403_forbidden",
+          "alternate_official_found",
+          "no_retrievable_primary",
+        ]),
+        retryAt: z.string().datetime({ offset: true }).optional(),
+        expiresAt: z.string().datetime({ offset: true }),
+      }),
+    );
+    return value && Date.parse(value.expiresAt) > Date.parse(at)
+      ? value
+      : undefined;
+  }
+  async putRetrievalOutcome(input: {
+    host: string;
+    canonicalUrl: string;
+    code: RetrievalDiagnosticCode;
+    retryAt?: string;
+    status: number;
+    recordedAt: string;
+    expiresAt: string;
+  }) {
+    await writeAtomicJson(
+      join(
+        this.root,
+        "cache",
+        "retrieval-outcomes",
+        `${hash(input.canonicalUrl)}.json`,
+      ),
+      input,
+    );
+    if (input.retryAt) {
+      const path = join(
+        this.root,
+        "cache",
+        "retrieval-hosts",
+        `${hash(input.host)}.json`,
+      );
+      const old = await optional(
+        path,
+        z.object({
+          attemptCount: z.number().int().nonnegative(),
+          windowStartedAt: z.string().datetime({ offset: true }),
+          cooldownUntil: z.string().datetime({ offset: true }).optional(),
+        }),
+      );
+      await writeAtomicJson(path, {
+        attemptCount: old?.attemptCount ?? 1,
+        windowStartedAt: old?.windowStartedAt ?? input.recordedAt,
+        cooldownUntil:
+          old?.cooldownUntil &&
+          Date.parse(old.cooldownUntil) > Date.parse(input.retryAt)
+            ? old.cooldownUntil
+            : input.retryAt,
+      });
+    }
+  }
+  async clearRetrievalOutcome(host: string, canonicalUrl: string) {
+    void host;
+    await rm(
+      join(
+        this.root,
+        "cache",
+        "retrieval-outcomes",
+        `${hash(canonicalUrl)}.json`,
+      ),
+      { force: true },
     );
   }
 }

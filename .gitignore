@@ -36,3 +36,4 @@ private-backups/
 .DS_Store
 .env.local
 automation/config/*.private.yaml
+.vercel

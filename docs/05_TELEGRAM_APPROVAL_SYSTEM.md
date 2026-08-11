@@ -140,6 +140,8 @@ blocked automation job. Cancelling the entire approved topic uses the separate
 
 HTTP 429, HTTP 403, robots exclusion, unsafe/private URLs, and duplicates produce concise operator messages with server-side diagnostic references. `/add_source <topicId>` and `/research_source <topicId>` reopen an eligible blocked flow; buttons remain the normal interface. `/queue` and `/status` display `awaiting_source` while the topic is blocked for operator evidence.
 
+Rate-limited source inspection now returns a signed, actor-scoped recovery card instead of a dead end. `Retry later` schedules one durable check no earlier than the publisher cooldown; `Find another official source` searches only declared, retrievable URLs on the verified publisher owner domain; `Paste another URL` reopens input; and `Cancel source attempt` clears only the unconfirmed attempt. Callbacks remain expiring, versioned, replay-safe, and idempotent. No recovery action weakens the primary-source requirement or continues into writing.
+
 `/jobs` is the normal recovery entry point. It derives actionable research from the current approved event, consumed event state, latest insufficient packet, active queue readiness, and a canonical blocked research handoff. Malformed, orphaned, superseded, cancelled, and terminal records are omitted. Each actionable lineage appears once as a compact card with `Resume research`; tapping it immediately acknowledges the callback and atomically rotates the actor-scoped remediation version and expiry before sending a fresh recovery card. Older cards become stale. `/jobs all` is the explicit read-only diagnostic view for recent historical records and job IDs.
 
 ## 10. Milestone 3 implementation boundary

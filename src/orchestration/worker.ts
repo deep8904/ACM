@@ -241,6 +241,10 @@ export class AutomationWorker {
   }
 
   private async research(job: AutomationJob) {
+    if (job.payload.remediationAction === "retry_source") {
+      const { controller } = await this.remediationController();
+      return controller.processScheduledRetry(job);
+    }
     const approvedEvent = await loadResearchHandoff(
       job,
       this.composition.research.events,

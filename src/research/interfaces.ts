@@ -1,5 +1,6 @@
 import type { TopicApprovedEvent, TopicQueueItem } from "../telegram/models";
 import type { ResearchJob, ResearchPacket, ResearchSource } from "./models";
+import type { RetrievalDiagnosticCode } from "./retrieve";
 
 export interface ExtractedContent {
   title: string;
@@ -73,6 +74,35 @@ export interface ResearchCacheRepository {
     host: string,
   ): Promise<{ body: string; fetchedAt: string } | undefined>;
   putRobots(host: string, body: string, fetchedAt: string): Promise<void>;
+  claimRetrievalAttempt(input: {
+    host: string;
+    canonicalUrl: string;
+    attemptedAt: string;
+    budget: number;
+    windowMs: number;
+    cooldownMs: number;
+  }): Promise<{ allowed: boolean; retryAt?: string }>;
+  getRetrievalOutcome(
+    canonicalUrl: string,
+    at: string,
+  ): Promise<
+    | {
+        code: RetrievalDiagnosticCode;
+        retryAt?: string;
+        expiresAt: string;
+      }
+    | undefined
+  >;
+  putRetrievalOutcome(input: {
+    host: string;
+    canonicalUrl: string;
+    code: RetrievalDiagnosticCode;
+    retryAt?: string;
+    status: number;
+    recordedAt: string;
+    expiresAt: string;
+  }): Promise<void>;
+  clearRetrievalOutcome(host: string, canonicalUrl: string): Promise<void>;
 }
 export interface ApprovedEventRepository {
   next(): Promise<TopicApprovedEvent | undefined>;

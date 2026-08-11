@@ -23,10 +23,17 @@ import {
   type ResearchSource,
 } from "./models";
 import { z } from "zod";
-import { retrieveSafely, robotsAllows, type ResearchFetch } from "./retrieve";
+import {
+  ResearchRetrievalError,
+  retrieveSafely,
+  robotsAllows,
+  type ResearchFetch,
+  type RetrievalPolicyHooks,
+} from "./retrieve";
 import { stable } from "./storage";
 import type { DnsLookup } from "../telegram/interfaces";
 import { validateManualUrl } from "../telegram/safe-url";
+import { extractOfficialAlternateUrls } from "./alternates";
 
 export class ResearchService {
   constructor(
@@ -122,22 +129,26 @@ export class ResearchService {
     );
     if (artifact.source.extractionStatus !== "extracted") {
       const warning = artifact.source.warnings.join("; ");
-      const kind = /robots/i.test(warning)
-        ? "robots"
-        : /HTTP 429/i.test(warning)
-          ? "rate_limited"
-          : /HTTP 403/i.test(warning)
-            ? "forbidden"
-            : "retrieval";
+      const kind = /robots_denied|robots/i.test(warning)
+        ? "robots_denied"
+        : /429_retry_after/i.test(warning)
+          ? "429_retry_after"
+          : /429_cooldown|HTTP 429/i.test(warning)
+            ? "429_cooldown"
+            : /403_forbidden|HTTP 403/i.test(warning)
+              ? "403_forbidden"
+              : "retrieval";
+      const retryAt = /(?:retry at|until) ([^;\s]+)/i.exec(warning)?.[1];
       throw new ResearchSourceInspectionError(
         kind,
-        kind === "robots"
+        kind === "robots_denied"
           ? "That page blocks automated retrieval through robots.txt"
-          : kind === "rate_limited"
+          : kind === "429_retry_after" || kind === "429_cooldown"
             ? "That page is rate-limiting retrieval (HTTP 429)"
-            : kind === "forbidden"
+            : kind === "403_forbidden"
               ? "That page refused retrieval (HTTP 403)"
               : "That page could not be retrieved as usable evidence",
+        retryAt,
       );
     }
     return {
@@ -317,6 +328,57 @@ export class ResearchService {
       artifact.source,
       artifact.text,
     );
+  }
+  async findOfficialAlternatives(input: { topicId: string; url: string }) {
+    const canonicalUrl = await validateManualUrl(input.url, this.deps.lookup);
+    const target = new URL(canonicalUrl);
+    const owner = ownerForHost(target.hostname);
+    const discoveryUrls = [
+      `${target.origin}/sitemap.xml`,
+      `${target.origin}/blogs/journal.atom`,
+      `${target.origin}/feed`,
+    ];
+    const robots = await this.deps.cache?.getRobots(target.hostname);
+    const found = new Set<string>();
+    for (const discoveryUrl of discoveryUrls) {
+      if (robots && !robotsAllows(robots.body, new URL(discoveryUrl).pathname))
+        continue;
+      try {
+        const document = await retrieveSafely(
+          discoveryUrl,
+          {
+            ...this.deps.config,
+            maxBytes: Math.min(this.deps.config.maxBytes, 512_000),
+            maxRedirects: 1,
+          },
+          this.deps.fetch,
+          this.deps.lookup,
+          this.retrievalPolicyHooks(),
+        );
+        for (const candidate of extractOfficialAlternateUrls({
+          body: document.body,
+          contentType: document.contentType,
+          documentUrl: document.finalUrl,
+          publisherOwner: owner,
+          targetUrl: canonicalUrl,
+        }))
+          found.add(candidate);
+      } catch {
+        // A discovery document is optional. Policy hooks retain the bounded
+        // outcome and prevent repeated host access.
+      }
+      if (found.size >= 5) break;
+    }
+    const retrievable: string[] = [];
+    for (const candidate of [...found].slice(0, 5)) {
+      try {
+        await this.inspectSource({ topicId: input.topicId, url: candidate });
+        retrievable.push(candidate);
+      } catch {
+        // Candidates remain suggestions only if normal inspection succeeds.
+      }
+    }
+    return retrievable;
   }
   private async run(
     eventId: string,
@@ -539,7 +601,22 @@ export class ResearchService {
       if (persist) await this.deps.sources.save(source, cached.text);
       return persist ? source : { source, text: cached.text };
     }
+    const negative = await this.deps.cache?.getRetrievalOutcome(
+      item.canonicalUrl,
+      currentTime.toISOString(),
+    );
+    if (negative) {
+      const source = this.metadataSource(
+        event,
+        item,
+        `Retrieval blocked: ${negative.code}${negative.retryAt ? ` until ${negative.retryAt}` : ""}`,
+        metadata,
+      );
+      if (persist) await this.deps.sources.save(source, "");
+      return persist ? source : { source, text: "" };
+    }
     const target = new URL(item.canonicalUrl);
+    const policy = this.retrievalPolicyHooks();
     let robotsWarning: string | undefined;
     try {
       const cachedRobots = await this.deps.cache?.getRobots(target.hostname);
@@ -559,6 +636,7 @@ export class ResearchService {
           },
           this.deps.fetch,
           this.deps.lookup,
+          policy,
         );
         robotsBody = robots.body;
         await this.deps.cache?.putRobots(
@@ -568,10 +646,21 @@ export class ResearchService {
         );
       }
       if (!robotsAllows(robotsBody, target.pathname)) {
+        await this.deps.cache?.putRetrievalOutcome({
+          host: target.hostname,
+          canonicalUrl: item.canonicalUrl,
+          code: "robots_denied",
+          status: 0,
+          recordedAt: currentTime.toISOString(),
+          expiresAt: new Date(
+            currentTime.getTime() +
+              this.deps.config.robotsCacheTtlHours * 3_600_000,
+          ).toISOString(),
+        });
         const source = this.metadataSource(
           event,
           item,
-          "Blocked by robots.txt",
+          "Blocked by robots.txt (robots_denied)",
           metadata,
         );
         if (persist) await this.deps.sources.save(source, "");
@@ -588,12 +677,19 @@ export class ResearchService {
         this.deps.config,
         this.deps.fetch,
         this.deps.lookup,
+        policy,
       );
     } catch (error) {
+      const reason =
+        error instanceof ResearchRetrievalError && error.code
+          ? `${error.code}: ${error.message}${error.retryAt ? `; retry at ${error.retryAt}` : ""}`
+          : error instanceof Error
+            ? error.message
+            : "unknown error";
       const source = this.metadataSource(
         event,
         item,
-        `Retrieval failed: ${error instanceof Error ? error.message : "unknown error"}`,
+        `Retrieval failed: ${reason}`,
         metadata,
       );
       if (persist) await this.deps.sources.save(source, "");
@@ -702,6 +798,35 @@ export class ResearchService {
       await this.deps.cache?.put(source, extracted.text);
     }
     return persist ? source : { source, text: extracted.text };
+  }
+
+  private retrievalPolicyHooks(): RetrievalPolicyHooks {
+    const cache = this.deps.cache;
+    if (!cache) return {};
+    return {
+      now: this.deps.now,
+      beforeAttempt: ({ host, canonicalUrl, attemptedAt }) =>
+        cache.claimRetrievalAttempt({
+          host,
+          canonicalUrl,
+          attemptedAt,
+          budget: this.deps.config.hostRetryBudget,
+          windowMs: this.deps.config.hostRetryWindowMinutes * 60_000,
+          cooldownMs: this.deps.config.hostCooldownMinutes * 60_000,
+        }),
+      recordOutcome: (outcome) => {
+        const recorded = Date.parse(outcome.recordedAt);
+        const expiresAt = new Date(
+          Math.max(
+            recorded + this.deps.config.negativeCacheTtlMinutes * 60_000,
+            outcome.retryAt ? Date.parse(outcome.retryAt) : 0,
+          ),
+        ).toISOString();
+        return cache.putRetrievalOutcome({ ...outcome, expiresAt });
+      },
+      clearOutcome: (host, canonicalUrl) =>
+        cache.clearRetrievalOutcome(host, canonicalUrl),
+    };
   }
 
   private metadataSource(
@@ -1003,8 +1128,14 @@ function uniqueStrings(values: string[]) {
 export class ResearchSourceInspectionError extends Error {
   constructor(
     readonly kind:
-      "duplicate" | "robots" | "rate_limited" | "forbidden" | "retrieval",
+      | "duplicate"
+      | "robots_denied"
+      | "429_retry_after"
+      | "429_cooldown"
+      | "403_forbidden"
+      | "retrieval",
     message: string,
+    readonly retryAt?: string,
   ) {
     super(message);
     this.name = "ResearchSourceInspectionError";

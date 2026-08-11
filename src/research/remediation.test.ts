@@ -7,6 +7,7 @@ import { DurableApprovedEventError } from "./approved-event";
 import { TelegramControlError } from "../telegram/errors";
 import {
   ResearchRemediationService,
+  ResearchRemediationInspectionError,
   ResearchRemediationTelegramController,
   researchRemediationCallbackSecret,
   researchRemediationSchema,
@@ -344,6 +345,127 @@ describe("Telegram research remediation", () => {
     ]);
   });
 
+  it("turns a 429 into signed recovery actions without adding a source", async () => {
+    const harness = createHarness();
+    await harness.repository.save(awaitingUrlState());
+    harness.service.inspect.mockRejectedValueOnce(
+      new ResearchRemediationInspectionError(
+        "Rate limited. Reference: diag_a4976f04b106b3e8",
+        "429_cooldown",
+        "diag_a4976f04b106b3e8",
+        "2026-08-11T12:15:00.000Z",
+      ),
+    );
+
+    await expect(
+      harness.controller.processConversationText(
+        "https://nuphy.com/blogs/journal/your-questions-answered",
+        messageUpdate(),
+        actor,
+      ),
+    ).resolves.toBe(true);
+
+    const card = harness.adapter.calls.findLast(
+      (call) => call.method === "sendFinalReviewCard",
+    )?.card;
+    expect(card?.text).toContain("429_cooldown");
+    expect(card?.buttons.flat().map((button) => button.text)).toEqual([
+      "Retry later",
+      "Find another official source",
+      "Paste another URL",
+      "Cancel source attempt",
+    ]);
+    expect(harness.service.confirm).not.toHaveBeenCalled();
+  });
+
+  it("schedules Retry later once and rejects callback replay", async () => {
+    const harness = createHarness();
+    const state = await harness.repository.save(
+      researchRemediationSchema.parse({
+        ...baseState(),
+        pendingUrl: "https://nuphy.com/blogs/journal/your-questions-answered",
+        retrievalFailure: {
+          code: "429_cooldown",
+          diagnosticId: "diag_a4976f04b106b3e8",
+          retryAt: "2026-08-11T12:15:00.000Z",
+        },
+      }),
+    );
+    harness.service.openBlocked.mockResolvedValueOnce(state);
+    await harness.controller.notifyBlocked(blockedJob() as never, actor);
+    harness.service.inspect.mockRejectedValueOnce(
+      new ResearchRemediationInspectionError(
+        "Rate limited",
+        "429_cooldown",
+        "diag_a4976f04b106b3e8",
+        "2026-08-11T12:15:00.000Z",
+      ),
+    );
+    await harness.repository.save(
+      researchRemediationSchema.parse({ ...state, state: "awaiting_url" }),
+      state.version,
+    );
+    await harness.controller.processConversationText(
+      "https://nuphy.com/blogs/journal/your-questions-answered",
+      messageUpdate(),
+      actor,
+    );
+    const retry = requiredButton(harness.adapter, "Retry later");
+
+    await harness.controller.processCallback(callbackUpdate(retry), actor);
+    await expect(
+      harness.controller.processCallback(
+        callbackUpdate(retry, 2, "retry-replay"),
+        actor,
+      ),
+    ).rejects.toThrow(/stale/);
+    expect(harness.service.scheduleRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["Find another official source", "find"],
+    ["Paste another URL", "paste"],
+    ["Cancel source attempt", "cancel"],
+  ] as const)("handles the 429 recovery action %s", async (label, action) => {
+    const harness = createHarness();
+    await harness.repository.save(awaitingUrlState());
+    harness.service.inspect.mockRejectedValueOnce(
+      new ResearchRemediationInspectionError(
+        "Rate limited",
+        "429_cooldown",
+        "diag_a4976f04b106b3e8",
+        "2026-08-11T12:15:00.000Z",
+      ),
+    );
+    await harness.controller.processConversationText(
+      "https://nuphy.com/blogs/journal/your-questions-answered",
+      messageUpdate(),
+      actor,
+    );
+    const callback = requiredButton(harness.adapter, label);
+
+    await harness.controller.processCallback(callbackUpdate(callback), actor);
+
+    const current = await harness.repository.getForActor("100", "200");
+    if (action === "find") {
+      expect(harness.service.findOfficialAlternatives).toHaveBeenCalledTimes(1);
+      expect(current?.state).toBe("blocked");
+    } else if (action === "paste") {
+      expect(current).toMatchObject({
+        state: "awaiting_url",
+        pendingUrl: undefined,
+        retrievalFailure: undefined,
+      });
+    } else {
+      expect(current).toMatchObject({
+        state: "blocked",
+        pendingUrl: undefined,
+        retrievalFailure: undefined,
+      });
+      expect(harness.cancelTopic).not.toHaveBeenCalled();
+    }
+  });
+
   it("consumes one URL and leaves a deterministic non-consuming result for a second URL", async () => {
     const harness = createHarness();
     await harness.repository.save(awaitingUrlState());
@@ -638,6 +760,10 @@ function createHarness() {
       job: { id: "automationjob_bbbbbbbbbbbbbbbbbbbbbbbb" },
     })),
     cancelJob: vi.fn(async () => undefined),
+    scheduleRetry: vi.fn(async () => ({
+      availableAt: "2026-08-11T12:15:00.000Z",
+    })),
+    findOfficialAlternatives: vi.fn(async () => []),
   };
   const cancelTopic = vi.fn(async () => undefined);
   const refreshTopics = vi.fn(async () => undefined);
