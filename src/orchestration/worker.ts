@@ -7,7 +7,11 @@ import { FeedAdapter } from "../discovery/adapters/feed-adapter";
 import { HackerNewsAdapter } from "../discovery/adapters/hacker-news-adapter";
 import { loadSourceConfig } from "../discovery/config/source-config";
 import { runDiscovery } from "../discovery/discovery-service";
-import { createConfiguredLlmProvider, type LLMProvider } from "../llm/provider";
+import {
+  createConfiguredLlmProvider,
+  LlmProviderConfigurationError,
+  type LLMProvider,
+} from "../llm/provider";
 import { GitHubContentRepository } from "../publication/repository";
 import {
   HttpPublicPageVerifier,
@@ -24,6 +28,7 @@ import { PostgresHistoryRepository } from "../ranking/postgres-history";
 import { loadRankingConfig } from "../ranking/config";
 import { runRankingPipeline } from "../ranking/service";
 import { importAssistance, writeAssistanceTask } from "../research/assisted";
+import { DurableApprovedEventError } from "../research/approved-event";
 import { loadResearchConfig } from "../research/config";
 import { assistedResearchResultSchema } from "../research/models";
 import { ResearchService } from "../research/service";
@@ -52,6 +57,10 @@ import { sha256 } from "../writing/task";
 import type { AutomationJob } from "./models";
 import { reconcileAutomationQueue } from "./reconcile";
 import { PostgresAutomationJobRepository } from "./repository";
+import {
+  InvalidResearchHandoffError,
+  loadResearchHandoff,
+} from "./research-handoff";
 
 export class AutomationWorker {
   private readonly jobs: PostgresAutomationJobRepository;
@@ -222,7 +231,11 @@ export class AutomationWorker {
   }
 
   private async research(job: AutomationJob) {
-    const eventId = stringPayload(job, "eventId");
+    const approvedEvent = await loadResearchHandoff(
+      job,
+      this.composition.research.events,
+    );
+    const eventId = approvedEvent.id;
     const config = await loadResearchConfig(
       this.environment.RESEARCH_CONFIG ??
         "automation/config/research.example.yaml",
@@ -630,7 +643,12 @@ function classify(error: unknown) {
     /(?:required|not configured|missing).*(?:key|token|credential)|GOOGLE_AI_API_KEY/i.test(
       summary,
     );
-  const blocked = error instanceof BlockedAutomationError || missingCredential;
+  const blocked =
+    error instanceof BlockedAutomationError ||
+    error instanceof InvalidResearchHandoffError ||
+    error instanceof DurableApprovedEventError ||
+    error instanceof LlmProviderConfigurationError ||
+    missingCredential;
   const nonRetryable =
     /(?:identity|snapshot hash|unexpected|collision|unsafe|not eligible|maximum attempts)/i.test(
       summary,

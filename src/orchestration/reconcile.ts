@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 
 import type { DatabaseClient } from "../database/client";
+import { parseDurableApprovedEvent } from "../research/approved-event";
 import type { EnqueueAutomationJob } from "./models";
+import { researchAutomationInput } from "./research-handoff";
 import { PostgresAutomationJobRepository } from "./repository";
 
 export async function reconcileAutomationQueue(
@@ -10,25 +12,32 @@ export async function reconcileAutomationQueue(
   now = new Date(),
 ) {
   const enqueued: string[] = [];
+  const invalidApprovedEvents: string[] = [];
   enqueued.push((await jobs.enqueue(scheduledDiscoveryJob(now))).id);
 
-  const topicEvents = await sql<{ id: string; topic_id: string }[]>`
-    select e.id,e.topic_id from content_machine.topic_approved_events e
+  const topicEvents = await sql<
+    { id: string; topic_id: string; payload: unknown }[]
+  >`
+    select e.id,e.topic_id,e.payload from content_machine.topic_approved_events e
     left join content_machine.topic_event_state s on s.event_id=e.id
+    join content_machine.topic_queue_items q on q.topic_id=e.topic_id
     where e.status='ready' and s.consumed_at is null
+      and q.approval_status='approved'
+      and q.payload->>'researchReadiness'='ready_for_research'
   `;
-  for (const event of topicEvents) {
-    enqueued.push(
-      (
-        await jobs.enqueue({
-          type: "research",
-          idempotencyKey: hash(`research:${event.id}`),
-          lineageKey: event.id,
-          topicId: event.topic_id,
-          payload: { eventId: event.id },
-        })
-      ).id,
-    );
+  for (const row of topicEvents) {
+    let event;
+    try {
+      event = parseDurableApprovedEvent({
+        id: row.id,
+        topicId: row.topic_id,
+        payload: row.payload,
+      });
+    } catch {
+      invalidApprovedEvents.push(row.id);
+      continue;
+    }
+    enqueued.push((await jobs.enqueue(researchAutomationInput(event))).id);
   }
 
   const packets = await sql<{ topic_id: string; packet_version: number }[]>`
@@ -126,7 +135,10 @@ export async function reconcileAutomationQueue(
       ).id,
     );
   }
-  return { enqueued: [...new Set(enqueued)] };
+  return {
+    enqueued: [...new Set(enqueued)],
+    invalidApprovedEvents: [...new Set(invalidApprovedEvents)],
+  };
 }
 
 export function scheduledDiscoveryJob(now: Date): EnqueueAutomationJob {

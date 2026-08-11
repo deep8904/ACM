@@ -30,6 +30,15 @@ export interface LLMProvider {
   }): Promise<LlmGeneration<T>>;
 }
 
+export class LlmProviderConfigurationError extends Error {
+  readonly code = "llm_provider_configuration_invalid";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "LlmProviderConfigurationError";
+  }
+}
+
 const geminiEnvelopeSchema = z.object({
   candidates: z
     .array(
@@ -66,7 +75,7 @@ export class GeminiLLMProvider implements LLMProvider {
     },
   ) {
     if (!options.apiKey) throw new Error("GOOGLE_AI_API_KEY is required");
-    this.model = options.model;
+    this.model = options.model.replace(/^models\//, "");
     this.fetchImplementation = options.fetch ?? fetch;
   }
 
@@ -89,7 +98,7 @@ export class GeminiLLMProvider implements LLMProvider {
     ) {
       try {
         const response = await this.fetchImplementation(
-          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.options.apiKey)}`,
+          geminiGenerateContentUrl(this.model, this.options.apiKey),
           {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -116,7 +125,11 @@ export class GeminiLLMProvider implements LLMProvider {
             response.status >= 500;
           if (retryable && attempt < (this.options.maximumAttempts ?? 3))
             continue;
-          throw new Error(`Gemini request failed (${response.status})`);
+          const detail = await safeGeminiError(response);
+          const message = `Gemini request failed (${response.status}${detail ? ` ${detail}` : ""})`;
+          if ([400, 401, 403, 404].includes(response.status))
+            throw new LlmProviderConfigurationError(message);
+          throw new Error(message);
         }
         const envelope = geminiEnvelopeSchema.parse(await response.json());
         const text = envelope.candidates?.[0]?.content.parts
@@ -220,6 +233,11 @@ export class GeminiLLMProvider implements LLMProvider {
   }
 }
 
+export function geminiGenerateContentUrl(model: string, apiKey: string) {
+  const canonicalModel = model.replace(/^models\//, "");
+  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(canonicalModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+}
+
 export function createConfiguredLlmProvider(
   environment: NodeJS.ProcessEnv,
   sql?: DatabaseClient,
@@ -253,4 +271,28 @@ function safeError(error: unknown) {
   return error instanceof Error
     ? error.message.replace(/(?:key|token|secret)=[^\s&]+/gi, "$1=<redacted>")
     : "Unknown provider failure";
+}
+
+async function safeGeminiError(response: Response): Promise<string> {
+  const body = await response
+    .clone()
+    .json()
+    .catch(() => undefined);
+  const parsed = z
+    .object({
+      error: z
+        .object({
+          status: z.string().max(100).optional(),
+          message: z.string().max(1000).optional(),
+        })
+        .optional(),
+    })
+    .safeParse(body);
+  if (!parsed.success || !parsed.data.error) return "";
+  const status = parsed.data.error.status?.replace(/[^A-Z0-9_]/g, "");
+  const message = parsed.data.error.message
+    ?.replace(/(?:key|token|secret)=[^\s&]+/gi, "$1=<redacted>")
+    .replace(/AIza[A-Za-z0-9_-]{20,}/g, "<redacted API key>")
+    .slice(0, 500);
+  return [status, message].filter(Boolean).join(": ");
 }
