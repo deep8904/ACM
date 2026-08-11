@@ -1,7 +1,11 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 
-import type { DatabaseClient } from "../database/client";
+import {
+  withTransaction,
+  type DatabaseClient,
+  type DatabaseTransaction,
+} from "../database/client";
 import { toJsonValue } from "../database/json";
 import type { TelegramActor } from "../telegram/authorization";
 import { TelegramControlError } from "../telegram/errors";
@@ -110,6 +114,12 @@ export interface ResearchRemediationRepository {
     value: ResearchRemediation,
     expectedVersion?: number,
   ): Promise<ResearchRemediation>;
+  cancelInteraction(
+    value: ResearchRemediation,
+    expectedVersion: number,
+    dedupeKey: string,
+    fromState: ResearchRemediation["state"],
+  ): Promise<ResearchRemediation>;
   audit(input: {
     remediationId: string;
     topicId: string;
@@ -189,11 +199,52 @@ export class PostgresResearchRemediationRepository implements ResearchRemediatio
   }
 
   async audit(input: Parameters<ResearchRemediationRepository["audit"]>[0]) {
+    await this.writeAudit(this.sql, input);
+  }
+
+  async cancelInteraction(
+    value: ResearchRemediation,
+    expectedVersion: number,
+    dedupeKey: string,
+    fromState: ResearchRemediation["state"],
+  ) {
+    const item = researchRemediationSchema.parse(value);
+    await withTransaction(this.sql, async (tx) => {
+      const rows = await tx<{ id: string }[]>`
+        update content_machine.research_remediation_conversations
+        set packet_version=${item.packetVersion},state=${item.state},reason=${item.reason},
+          version=${item.version},expires_at=${item.expiresAt},payload=${tx.json(toJsonValue(item))},
+          updated_at=${item.updatedAt}
+        where id=${item.id} and version=${expectedVersion}
+        returning id
+      `;
+      if (!rows[0])
+        throw new TelegramControlError(
+          "queue_conflict",
+          "Research recovery state changed. Use /jobs to refresh.",
+          409,
+        );
+      await this.writeAudit(tx, {
+        remediationId: item.id,
+        topicId: item.topicId,
+        jobId: item.jobId,
+        action: "interaction_cancelled",
+        dedupeKey,
+        details: { fromState },
+      });
+    });
+    return item;
+  }
+
+  private async writeAudit(
+    sql: DatabaseClient | DatabaseTransaction,
+    input: Parameters<ResearchRemediationRepository["audit"]>[0],
+  ) {
     const id = `remediationevent_${hash(`${input.remediationId}:${input.action}:${input.dedupeKey}`).slice(0, 24)}`;
-    await this.sql`
+    await sql`
       insert into content_machine.research_remediation_events
         (id,remediation_id,topic_id,job_id,action,diagnostic_id,payload)
-      values (${id},${input.remediationId},${input.topicId},${input.jobId},${input.action},${input.diagnosticId ?? null},${this.sql.json(toJsonValue(input.details ?? {}))})
+      values (${id},${input.remediationId},${input.topicId},${input.jobId},${input.action},${input.diagnosticId ?? null},${sql.json(toJsonValue(input.details ?? {}))})
       on conflict(id) do nothing
     `;
   }
@@ -499,6 +550,8 @@ type CallbackAction =
   | "add"
   | "change"
   | "cancel"
+  | "confirm_topic_cancel"
+  | "keep_topic"
   | "primary"
   | "independent"
   | "details"
@@ -612,6 +665,18 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       });
       throw new TelegramControlError("stale_callback", staleCardMessage, 403);
     }
+    if (
+      parsed.action === "cancel" &&
+      state.state === "blocked" &&
+      state.version === parsed.version + 1
+    ) {
+      await this.deps.adapter.answerCallback(query.id);
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        blockedCard(state, this.deps.callbackSecret),
+      );
+      return;
+    }
     if (state.version !== parsed.version) {
       this.logStale("version_mismatch", {
         ...parsed,
@@ -631,6 +696,28 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
     await this.deps.adapter.answerCallback(query.id);
     if (parsed.action === "add") {
       await this.promptForUrl(state);
+    } else if (parsed.action === "cancel") {
+      const next = await this.cancelInteraction(state, query.id);
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        blockedCard(next, this.deps.callbackSecret),
+      );
+    } else if (parsed.action === "change") {
+      const next = await this.transition(state, "blocked", {
+        proposal: undefined,
+      });
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        topicCancellationCard(next, this.deps.callbackSecret),
+      );
+    } else if (parsed.action === "keep_topic") {
+      const next = await this.transition(state, "blocked", {
+        proposal: undefined,
+      });
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        blockedCard(next, this.deps.callbackSecret),
+      );
     } else if (parsed.action === "details") {
       await this.deps.adapter.sendStatusMessage(
         actor.chatId,
@@ -649,17 +736,11 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
         actor.chatId,
         `<b>Source added ✓</b>\nImmutable research packet v${result.packet.version} created. Gemini synthesis is queued; the normal pipeline will continue only if evidence passes unchanged gates.`,
       );
-    } else {
+    } else if (parsed.action === "confirm_topic_cancel") {
       await this.deps.cancelTopic(state.topicId, update, actor);
       await this.deps.service.cancelJob(state, query.id);
       await this.transition(state, "cancelled");
-      if (parsed.action === "change") {
-        await this.deps.adapter.sendStatusMessage(
-          actor.chatId,
-          "Blocked topic cancelled with its history preserved. Current topic options follow.",
-        );
-        await this.deps.refreshTopics(actor.chatId);
-      }
+      await this.deps.refreshTopics(actor.chatId);
     }
   }
 
@@ -726,6 +807,25 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
     await this.deps.adapter.sendFinalReviewCard(
       next.chatId,
       inputCard(next, this.deps.callbackSecret),
+    );
+  }
+
+  private async cancelInteraction(
+    state: ResearchRemediation,
+    dedupeKey: string,
+  ) {
+    const next = researchRemediationSchema.parse({
+      ...state,
+      proposal: undefined,
+      state: "blocked",
+      updatedAt: this.now().toISOString(),
+      version: state.version + 1,
+    });
+    return this.deps.repository.cancelInteraction(
+      next,
+      state.version,
+      dedupeKey,
+      state.state,
     );
   }
 
@@ -798,11 +898,26 @@ function blockedCard(state: ResearchRemediation, secret: string) {
     text: `<b>Research blocked</b>\n${escape(state.reason)}\n\nNo article was drafted or published.`,
     buttons: [
       [button("Add primary source", "add", state, secret)],
-      [
-        button("Change topic", "change", state, secret),
-        button("Cancel", "cancel", state, secret),
-      ],
+      [button("Cancel approved topic…", "change", state, secret)],
       [button("Details", "details", state, secret)],
+    ],
+  };
+}
+
+function topicCancellationCard(state: ResearchRemediation, secret: string) {
+  return {
+    topicId: state.topicId,
+    text: `<b>Cancel the approved topic?</b>\nThis cancels the entire topic and its automation job before publication. Immutable research history remains preserved.\n\nTo cancel only source entry, use Cancel on the source-entry card instead.`,
+    buttons: [
+      [
+        button(
+          "Confirm topic cancellation",
+          "confirm_topic_cancel",
+          state,
+          secret,
+        ),
+      ],
+      [button("Keep topic", "keep_topic", state, secret)],
     ],
   };
 }
@@ -870,6 +985,8 @@ function createCallback(
     add: "a",
     change: "h",
     cancel: "c",
+    confirm_topic_cancel: "x",
+    keep_topic: "k",
     primary: "p",
     independent: "i",
     details: "d",
@@ -905,9 +1022,8 @@ function parseCallback(value: string, secret: string, actor: TelegramActor) {
       jobId: `automationjob_${suffix}`,
     };
   }
-  const match = /^q:([ahcpid]):([a-f0-9]{12}):(\d+):([A-Za-z0-9_-]{10})$/.exec(
-    value,
-  );
+  const match =
+    /^q:([ahcxkpid]):([a-f0-9]{12}):(\d+):([A-Za-z0-9_-]{10})$/.exec(value);
   if (!match) throw new RemediationCallbackError("malformed");
   const [, code, shortId, rawVersion, provided] = match;
   const payload = `q:${code}:${shortId}:${rawVersion}`;
@@ -917,6 +1033,8 @@ function parseCallback(value: string, secret: string, actor: TelegramActor) {
     a: "add",
     h: "change",
     c: "cancel",
+    x: "confirm_topic_cancel",
+    k: "keep_topic",
     p: "primary",
     i: "independent",
     d: "details",

@@ -131,6 +131,13 @@ Research blocked
 → unchanged evidence gates
 ```
 
+`Cancel` on the source URL or authority-classification card cancels only that
+bounded remediation interaction. It discards the unconfirmed proposal, records
+an idempotent remediation audit event, and returns to the `Research blocked`
+card without changing the approved topic, approved event, research packet, or
+blocked automation job. Cancelling the entire approved topic uses the separate
+`Cancel approved topic…` action and requires confirmation on a second card.
+
 HTTP 429, HTTP 403, robots exclusion, unsafe/private URLs, and duplicates produce concise operator messages with server-side diagnostic references. `/add_source <topicId>` and `/research_source <topicId>` reopen an eligible blocked flow; buttons remain the normal interface. `/queue` and `/status` display `awaiting_source` while the topic is blocked for operator evidence.
 
 `/jobs` is the normal recovery entry point. It derives actionable research from the current approved event, consumed event state, latest insufficient packet, active queue readiness, and a canonical blocked research handoff. Malformed, orphaned, superseded, cancelled, and terminal records are omitted. Each actionable lineage appears once as a compact card with `Resume research`; tapping it immediately acknowledges the callback and atomically rotates the actor-scoped remediation version and expiry before sending a fresh recovery card. Older cards become stale. `/jobs all` is the explicit read-only diagnostic view for recent historical records and job IDs.

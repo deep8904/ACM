@@ -43,7 +43,7 @@ Exact duplicate requests are idempotent. The same URL with conflicting metadata 
 
 ### Telegram-first blocked-research recovery
 
-Migration 019 adds an actor-scoped, expiring research-remediation conversation and an immutable remediation audit stream. When a durable automation research job blocks because primary evidence was not retrieved, Telegram sends a compact `Research blocked` card with `Add primary source`, `Change topic`, `Cancel`, and `Details` actions.
+Migration 019 adds an actor-scoped, expiring research-remediation conversation and an immutable remediation audit stream. When a durable automation research job blocks because primary evidence was not retrieved, Telegram sends a compact `Research blocked` card with `Add primary source`, `Cancel approved topic…`, and `Details` actions.
 
 If that card expires, `/jobs` shows only canonically active, recoverable research lineages with a signed, actor-scoped `Resume research` button. Resume issues a fresh durable remediation version and TTL without retrying research or changing sources. `/jobs all` keeps malformed, orphaned, superseded, and terminal automation history available for diagnostics without presenting it as operator work.
 
@@ -51,7 +51,9 @@ If that card expires, `/jobs` shows only canonically active, recoverable researc
 
 Confirmation calls the same `ResearchService.extendSource` operation used by `research:add-source`. Its existing atomic extension repository supplies duplicate protection, immutable packet versioning, provenance, ownership validation, and content-hash identity. The webhook then enqueues an idempotent research-remediation automation job. The worker runs the existing Gemini synthesis/import path and unchanged sufficiency gates. A sufficient latest packet is discovered by the normal reconciler and queues writing; an insufficient result sends a new recovery card. No Telegram action in this flow approves or publishes an article.
 
-`Change topic` and `Cancel` reuse topic and automation-job cancellation semantics. They update mutable control state only; approved events, research packets, automation jobs, remediation events, and historical downstream records are retained.
+`Cancel` on the source-entry or source-classification card is scoped to that bounded remediation interaction. It clears the unconfirmed proposal, appends an idempotent remediation audit event, and returns to the blocked recovery card. It does not change the approved topic, approved event, packet, research job, or blocked automation job, and it never adds the proposed source.
+
+Whole-topic cancellation is deliberately separate. `Cancel approved topic…` opens an explicit confirmation card before reusing the topic and automation-job cancellation semantics. Confirming it updates mutable control state only; approved events, research packets, remediation events, and historical downstream records are retained. `Keep topic` returns to research recovery without cancelling anything.
 
 ## Commands
 
