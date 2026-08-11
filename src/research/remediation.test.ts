@@ -120,8 +120,7 @@ describe("Telegram research remediation", () => {
     expect(card?.text).toContain("Research blocked");
     expect(card?.buttons.flat().map((button) => button.text)).toEqual([
       "Add primary source",
-      "Change topic",
-      "Cancel",
+      "Cancel approved topic…",
       "Details",
     ]);
     for (const button of card?.buttons.flat() ?? [])
@@ -233,7 +232,7 @@ describe("Telegram research remediation", () => {
     ).rejects.toThrow("This card is stale; request a new one.");
   });
 
-  it.each(["Add primary source", "Change topic", "Cancel", "Details"])(
+  it.each(["Add primary source", "Cancel approved topic…", "Details"])(
     "immediately acknowledges %s before its response or side effect",
     async (label) => {
       const harness = createHarness();
@@ -472,28 +471,159 @@ describe("Telegram research remediation", () => {
     );
   });
 
-  it.each([
-    ["Change topic", true],
-    ["Cancel", false],
-  ])(
-    "%s preserves lineage through cancellation semantics",
-    async (label, refresh) => {
-      const harness = createHarness();
-      const state = await harness.repository.save(baseState());
-      const callback = await blockedCallback(harness, state, label);
-      await harness.controller.processCallback(callbackUpdate(callback), actor);
-      expect(harness.cancelTopic).toHaveBeenCalledWith(
-        state.topicId,
-        expect.anything(),
+  it("cancels only source entry while waiting for a URL", async () => {
+    const harness = createHarness();
+    const audit = vi.spyOn(harness.repository, "audit");
+    const state = await harness.repository.save(baseState());
+    const add = await blockedCallback(harness, state, "Add primary source");
+    await harness.controller.processCallback(callbackUpdate(add), actor);
+    const cancel = requiredButton(harness.adapter, "Cancel");
+
+    await harness.controller.processCallback(
+      callbackUpdate(cancel, 2, "cancel-url"),
+      actor,
+    );
+
+    const current = await harness.repository.getForActor("100", "200");
+    expect(current).toMatchObject({ state: "blocked", proposal: undefined });
+    expect(harness.cancelTopic).not.toHaveBeenCalled();
+    expect(harness.service.cancelJob).not.toHaveBeenCalled();
+    expect(harness.service.confirm).not.toHaveBeenCalled();
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "interaction_cancelled",
+        details: { fromState: "awaiting_url" },
+      }),
+    );
+    expect(requiredButton(harness.adapter, "Add primary source")).toBeTruthy();
+  });
+
+  it("keeps the approved blocked topic actionable after source-entry cancellation", async () => {
+    const harness = createActionableHarness();
+    await harness.controller.notifyBlocked(recoverableJob() as never, actor);
+    const add = requiredButton(harness.adapter, "Add primary source");
+    await harness.controller.processCallback(callbackUpdate(add), actor);
+    const cancel = requiredButton(harness.adapter, "Cancel");
+
+    await harness.controller.processCallback(callbackUpdate(cancel), actor);
+    harness.adapter.calls.length = 0;
+    await harness.controller.showActionableJobs(actor);
+
+    expect(requiredButton(harness.adapter, "Resume research")).toBeTruthy();
+    expect(harness.jobs.retry).not.toHaveBeenCalled();
+    expect(harness.research.extendSource).not.toHaveBeenCalled();
+  });
+
+  it("cancels only classification after an independent-source proposal", async () => {
+    const harness = createHarness();
+    await harness.repository.save(awaitingUrlState());
+    harness.service.inspect.mockResolvedValueOnce({
+      ...proposal(),
+      canonicalUrl: "https://hacdias.com/nuphy-review",
+      publisher: "Hacdias",
+      publisherOwner: "hacdias.com",
+      proposedAuthority: "independent",
+      reason: "The publisher is independent from the topic owner.",
+    } as never);
+    await harness.controller.processConversationText(
+      "https://hacdias.com/nuphy-review",
+      messageUpdate(),
+      actor,
+    );
+    const cancel = requiredButton(harness.adapter, "Cancel");
+
+    await harness.controller.processCallback(
+      callbackUpdate(cancel, 2, "cancel-classification"),
+      actor,
+    );
+
+    const current = await harness.repository.getForActor("100", "200");
+    expect(current).toMatchObject({ state: "blocked", proposal: undefined });
+    expect(harness.service.confirm).not.toHaveBeenCalled();
+    expect(harness.cancelTopic).not.toHaveBeenCalled();
+    expect(harness.service.cancelJob).not.toHaveBeenCalled();
+  });
+
+  it("makes replayed remediation Cancel callbacks idempotent", async () => {
+    const harness = createHarness();
+    const audit = vi.spyOn(harness.repository, "audit");
+    await harness.repository.save(awaitingUrlState());
+    const { callback } = await classificationCallback(harness, "Cancel");
+
+    await harness.controller.processCallback(callbackUpdate(callback), actor);
+    const version = (
+      await harness.repository.getForActor(actor.chatId, actor.userId)
+    )?.version;
+    await expect(
+      harness.controller.processCallback(
+        callbackUpdate(callback, 2, "cancel-replay"),
         actor,
-      );
-      expect(harness.service.cancelJob).toHaveBeenCalledWith(
-        state,
-        "callback-1",
-      );
-      expect(harness.refreshTopics).toHaveBeenCalledTimes(refresh ? 1 : 0);
-    },
-  );
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(
+      (await harness.repository.getForActor(actor.chatId, actor.userId))
+        ?.version,
+    ).toBe(version);
+    expect(audit).toHaveBeenCalledTimes(1);
+    expect(harness.service.confirm).not.toHaveBeenCalled();
+    expect(harness.cancelTopic).not.toHaveBeenCalled();
+    expect(harness.service.cancelJob).not.toHaveBeenCalled();
+  });
+
+  it("keeps topic-level cancellation separate and explicitly confirmed", async () => {
+    const harness = createHarness();
+    const state = await harness.repository.save(baseState());
+    const request = await blockedCallback(
+      harness,
+      state,
+      "Cancel approved topic…",
+    );
+
+    await harness.controller.processCallback(callbackUpdate(request), actor);
+    expect(harness.cancelTopic).not.toHaveBeenCalled();
+    expect(harness.service.cancelJob).not.toHaveBeenCalled();
+    const confirmation = requiredButton(
+      harness.adapter,
+      "Confirm topic cancellation",
+    );
+
+    await harness.controller.processCallback(
+      callbackUpdate(confirmation, 2, "confirm-topic-cancel"),
+      actor,
+    );
+    expect(harness.cancelTopic).toHaveBeenCalledWith(
+      state.topicId,
+      expect.anything(),
+      actor,
+    );
+    expect(harness.service.cancelJob).toHaveBeenCalledTimes(1);
+    expect(harness.refreshTopics).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns from topic cancellation confirmation without cancelling", async () => {
+    const harness = createHarness();
+    const state = await harness.repository.save(baseState());
+    const request = await blockedCallback(
+      harness,
+      state,
+      "Cancel approved topic…",
+    );
+    await harness.controller.processCallback(callbackUpdate(request), actor);
+    const keep = requiredButton(harness.adapter, "Keep topic");
+
+    await harness.controller.processCallback(
+      callbackUpdate(keep, 2, "keep-topic"),
+      actor,
+    );
+
+    expect(harness.cancelTopic).not.toHaveBeenCalled();
+    expect(harness.service.cancelJob).not.toHaveBeenCalled();
+    expect(
+      (await harness.repository.getForActor(actor.chatId, actor.userId))?.state,
+    ).toBe("blocked");
+    expect(requiredButton(harness.adapter, "Add primary source")).toBeTruthy();
+  });
 });
 
 function createHarness() {
@@ -698,7 +828,26 @@ class MemoryRepository implements ResearchRemediationRepository {
     this.value = researchRemediationSchema.parse(value);
     return this.value;
   }
-  async audit() {}
+  async cancelInteraction(
+    value: ResearchRemediation,
+    expectedVersion: number,
+    dedupeKey: string,
+    fromState: ResearchRemediation["state"],
+  ) {
+    const saved = await this.save(value, expectedVersion);
+    await this.audit({
+      remediationId: value.id,
+      topicId: value.topicId,
+      jobId: value.jobId,
+      action: "interaction_cancelled",
+      dedupeKey,
+      details: { fromState },
+    });
+    return saved;
+  }
+  async audit(input: Parameters<ResearchRemediationRepository["audit"]>[0]) {
+    void input;
+  }
 }
 
 async function blockedCallback(
