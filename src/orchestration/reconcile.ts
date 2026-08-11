@@ -1,40 +1,48 @@
 import { createHash } from "node:crypto";
 
 import type { DatabaseClient } from "../database/client";
-import { parseDurableApprovedEvent } from "../research/approved-event";
+import {
+  parseApprovedResearchLineage,
+  type ApprovedResearchLineageRow,
+} from "../research/approved-lineage";
 import type { EnqueueAutomationJob } from "./models";
 import { researchAutomationInput } from "./research-handoff";
 import { PostgresAutomationJobRepository } from "./repository";
 
+type AutomationEnqueuer = Pick<PostgresAutomationJobRepository, "enqueue">;
+
 export async function reconcileAutomationQueue(
   sql: DatabaseClient,
-  jobs = new PostgresAutomationJobRepository(sql),
+  jobs: AutomationEnqueuer = new PostgresAutomationJobRepository(sql),
   now = new Date(),
 ) {
   const enqueued: string[] = [];
   const invalidApprovedEvents: string[] = [];
   enqueued.push((await jobs.enqueue(scheduledDiscoveryJob(now))).id);
 
-  const topicEvents = await sql<
-    { id: string; topic_id: string; payload: unknown }[]
-  >`
-    select e.id,e.topic_id,e.payload from content_machine.topic_approved_events e
-    left join content_machine.topic_event_state s on s.event_id=e.id
+  const topicEvents = await sql<ApprovedResearchLineageRow[]>`
+    select e.id as event_id,e.topic_id as event_topic_id,e.approval_id as event_approval_id,
+      e.payload as event_payload,q.id as queue_id,q.topic_id as queue_topic_id,
+      q.candidate_id as queue_candidate_id,q.run_id as queue_run_id,
+      q.approval_status as queue_approval_status,q.trigger_state as queue_trigger_state,
+      q.payload as queue_payload,a.id as approval_id,a.topic_id as approval_topic_id,
+      a.action as approval_action,a.status as approval_status,a.payload as approval_payload
+    from content_machine.topic_approved_events e
+    join content_machine.topic_event_state s on s.event_id=e.id
     join content_machine.topic_queue_items q on q.topic_id=e.topic_id
+    join content_machine.topic_approvals a on a.id=e.approval_id and a.topic_id=e.topic_id
     where e.status='ready' and s.consumed_at is null
       and q.approval_status='approved'
+      and q.trigger_state='topic_approved_event_created'
       and q.payload->>'researchReadiness'='ready_for_research'
+      and a.action='approve' and a.status='approved'
   `;
   for (const row of topicEvents) {
     let event;
     try {
-      event = parseDurableApprovedEvent({
-        id: row.id,
-        topicId: row.topic_id,
-        payload: row.payload,
-      });
+      event = parseApprovedResearchLineage(row).event;
     } catch {
-      invalidApprovedEvents.push(row.id);
+      invalidApprovedEvents.push(row.event_id);
       continue;
     }
     enqueued.push((await jobs.enqueue(researchAutomationInput(event))).id);

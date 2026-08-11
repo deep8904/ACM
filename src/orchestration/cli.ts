@@ -5,6 +5,7 @@ import { productionReadiness } from "./readiness";
 import { reconcileAutomationQueue } from "./reconcile";
 import { PostgresAutomationJobRepository } from "./repository";
 import { runAutomationWorker } from "./worker";
+import { auditProductionResearch } from "./production-audit";
 
 export async function main(args: string[]) {
   const command = args[0] ?? "drain";
@@ -37,7 +38,26 @@ export async function main(args: string[]) {
       console.log(
         JSON.stringify(await productionReadiness(composition.sql), null, 2),
       );
-    else throw new Error(`Unknown automation command: ${command}`);
+    else if (command === "audit") {
+      const eventIds = list(process.env.AUDIT_EVENT_IDS);
+      const jobIds = list(process.env.AUDIT_JOB_IDS);
+      if (!eventIds.length && !jobIds.length)
+        throw new Error("AUDIT_EVENT_IDS or AUDIT_JOB_IDS is required");
+      console.log(
+        JSON.stringify(
+          await auditProductionResearch(
+            composition.sql,
+            composition.artifacts,
+            {
+              eventIds,
+              jobIds,
+            },
+          ),
+          null,
+          2,
+        ),
+      );
+    } else throw new Error(`Unknown automation command: ${command}`);
   } finally {
     await composition.close();
   }
@@ -46,6 +66,13 @@ export async function main(args: string[]) {
 function required(value: string | undefined) {
   if (!value) throw new Error("A job ID is required");
   return value;
+}
+
+function list(value: string | undefined) {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 const entry = process.argv[1];

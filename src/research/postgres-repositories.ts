@@ -25,6 +25,10 @@ import {
   type ResearchSource,
 } from "./models";
 import { parseDurableApprovedEvent } from "./approved-event";
+import {
+  parseApprovedResearchLineage,
+  type ApprovedResearchLineageRow,
+} from "./approved-lineage";
 
 type PayloadRow = { payload: unknown };
 type ApprovedEventRow = {
@@ -363,20 +367,25 @@ async function reconcileEventConsumption(
 export class PostgresApprovedEventRepository implements ApprovedEventRepository {
   constructor(private sql: DatabaseClient) {}
   async next() {
-    const rows = await this.sql<ApprovedEventRow[]>`
-      select e.id,e.topic_id,e.payload from content_machine.topic_approved_events e
+    const rows = await this.sql<ApprovedResearchLineageRow[]>`
+      select e.id as event_id,e.topic_id as event_topic_id,e.approval_id as event_approval_id,
+        e.payload as event_payload,q.id as queue_id,q.topic_id as queue_topic_id,
+        q.candidate_id as queue_candidate_id,q.run_id as queue_run_id,
+        q.approval_status as queue_approval_status,q.trigger_state as queue_trigger_state,
+        q.payload as queue_payload,a.id as approval_id,a.topic_id as approval_topic_id,
+        a.action as approval_action,a.status as approval_status,a.payload as approval_payload
+      from content_machine.topic_approved_events e
       join content_machine.topic_event_state s on s.event_id=e.id
       join content_machine.topic_queue_items q on q.topic_id=e.topic_id
-      where s.consumed_at is null and e.status='ready' and q.approval_status='approved'
+      join content_machine.topic_approvals a on a.id=e.approval_id and a.topic_id=e.topic_id
+      where s.consumed_at is null and e.status='ready'
+        and q.approval_status='approved'
+        and q.trigger_state='topic_approved_event_created'
+        and q.payload->>'researchReadiness'='ready_for_research'
+        and a.action='approve' and a.status='approved'
       order by e.approved_at,e.id limit 1
     `;
-    return rows[0]
-      ? parseDurableApprovedEvent({
-          id: rows[0].id,
-          topicId: rows[0].topic_id,
-          payload: rows[0].payload,
-        })
-      : undefined;
+    return rows[0] ? parseApprovedResearchLineage(rows[0]).event : undefined;
   }
   async get(id: string) {
     const rows = await this.sql<

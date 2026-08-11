@@ -47,6 +47,15 @@ describe("free hosted scheduler configuration", () => {
       name: "Reconcile and drain durable work",
       run: "npm run automation:worker",
     });
+    expect(jobs.drain.steps).toContainEqual({
+      name: "Audit requested research lineage",
+      if: "${{ github.event_name == 'workflow_dispatch' && (inputs.audit_event_ids != '' || inputs.audit_job_ids != '') }}",
+      env: {
+        AUDIT_EVENT_IDS: "${{ inputs.audit_event_ids }}",
+        AUDIT_JOB_IDS: "${{ inputs.audit_job_ids }}",
+      },
+      run: "npm run automation:audit",
+    });
     expect(jobs.drain.env.SITE_ORIGIN).toBe("${{ vars.SITE_ORIGIN }}");
     expect(jobs.drain.env.GOOGLE_AI_MODEL).toBe(
       "${{ vars.GOOGLE_AI_MODEL || 'gemini-3.6-flash' }}",

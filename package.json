@@ -102,6 +102,7 @@
     "automation:retry": "tsx src/orchestration/cli.ts retry",
     "automation:cancel": "tsx src/orchestration/cli.ts cancel",
     "automation:readiness": "tsx src/orchestration/cli.ts readiness",
+    "automation:audit": "tsx src/orchestration/cli.ts audit",
     "storage:migrate": "tsx src/database/storage-migrate-cli.ts",
     "schemas:analytics": "node --import tsx src/analytics/generate-schemas.ts",
     "start": "next start",
