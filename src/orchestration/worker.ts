@@ -32,6 +32,11 @@ import { DurableApprovedEventError } from "../research/approved-event";
 import { loadResearchConfig } from "../research/config";
 import { assistedResearchResultSchema } from "../research/models";
 import { ResearchService } from "../research/service";
+import {
+  PostgresResearchRemediationRepository,
+  ResearchRemediationService,
+  ResearchRemediationTelegramController,
+} from "../research/remediation";
 import { loadReviewConfig } from "../review/config";
 import { FinalApprovalService } from "../review/final-approval";
 import {
@@ -148,7 +153,7 @@ export class AutomationWorker {
         );
         completed.push({ id: job.id, type: job.type, status: failed.status });
         await this.notifyFailure(
-          job,
+          failed,
           failed.diagnosticId ?? "unknown",
           classification.summary,
           classification.operatorAction,
@@ -612,6 +617,69 @@ export class AutomationWorker {
     summary: string,
     operatorAction?: string,
   ) {
+    if (
+      job.type === "research" &&
+      job.status === "blocked" &&
+      (/primary source/i.test(summary) ||
+        typeof job.payload.remediationId === "string") &&
+      this.composition.sql
+    ) {
+      try {
+        const config = await loadResearchConfig(
+          this.environment.RESEARCH_CONFIG ??
+            "automation/config/research.example.yaml",
+        );
+        const repository = new PostgresResearchRemediationRepository(
+          this.composition.sql,
+        );
+        const research = new ResearchService({
+          events: this.composition.research.events,
+          jobs: this.composition.research.jobs,
+          packets: this.composition.research.packets,
+          sources: this.composition.research.sources,
+          cache: this.composition.research.cache,
+          extensions: this.composition.research.extensions,
+          catalog: this.composition.catalog,
+          config,
+        });
+        const controller = new ResearchRemediationTelegramController({
+          service: new ResearchRemediationService({
+            remediation: repository,
+            research,
+            packets: this.composition.research.packets,
+            events: this.composition.research.events,
+            topics: this.composition.telegram,
+            jobs: this.jobs,
+            ttlMinutes: this.telegramConfig.TELEGRAM_CONVERSATION_TTL_MINUTES,
+          }),
+          repository,
+          adapter: this.telegram,
+          callbackSecret: this.telegramConfig.callbackSecret,
+          cancelTopic: async () => {
+            throw new Error("Cancellation is available through the webhook");
+          },
+          refreshTopics: async () => undefined,
+        });
+        for (const [
+          index,
+          chatId,
+        ] of this.telegramConfig.TELEGRAM_ALLOWED_CHAT_IDS.entries()) {
+          const userId =
+            this.telegramConfig.TELEGRAM_ALLOWED_USER_IDS[index] ??
+            this.telegramConfig.TELEGRAM_ALLOWED_USER_IDS[0];
+          if (userId)
+            await controller.notifyBlocked(
+              job,
+              { chatId, userId, chatType: "private" },
+              summary,
+            );
+        }
+        return;
+      } catch {
+        // Fall through to the safe generic failure notification. Detailed
+        // diagnostics already remain attached to the durable automation job.
+      }
+    }
     const safe = summary
       .replace(/https?:\/\/[^\s]+/g, "[redacted URL]")
       .slice(0, 500);

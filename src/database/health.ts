@@ -27,6 +27,8 @@ export const CRITICAL_TABLES = [
   "automation_jobs",
   "automation_heartbeats",
   "llm_invocations",
+  "research_remediation_conversations",
+  "research_remediation_events",
 ] as const;
 
 export interface DatabaseHealth {

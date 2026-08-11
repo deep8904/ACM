@@ -53,6 +53,7 @@ export interface TopicApprovalServiceOptions {
   social?: FinalReviewControl;
   analytics?: FinalReviewControl;
   operations?: FinalReviewControl;
+  researchRemediation?: FinalReviewControl;
 }
 
 export interface FinalReviewControl {
@@ -197,6 +198,15 @@ export class TopicApprovalService {
     update: TelegramUpdate,
     actor: TelegramActor,
   ): Promise<void> {
+    if (this.options.researchRemediation?.handlesCommand(command)) {
+      await this.options.researchRemediation.processCommand(
+        command as string,
+        rest,
+        update,
+        actor,
+      );
+      return;
+    }
     if (this.options.operations?.handlesCommand(command)) {
       await this.options.operations.processCommand(
         command as string,
@@ -482,6 +492,15 @@ export class TopicApprovalService {
       await this.options.social.processCallback(update, actor);
       return;
     }
+    if (callback.data.startsWith("q:")) {
+      if (!this.options.researchRemediation)
+        throw new TelegramControlError(
+          "stale_callback",
+          "Research recovery is not configured",
+        );
+      await this.options.researchRemediation.processCallback(update, actor);
+      return;
+    }
     const parsed = parseCallbackData(
       callback.data,
       this.options.config.callbackSecret,
@@ -749,6 +768,15 @@ export class TopicApprovalService {
     actor: TelegramActor,
   ): Promise<void> {
     if (
+      this.options.researchRemediation &&
+      (await this.options.researchRemediation.processConversationText(
+        text,
+        update,
+        actor,
+      ))
+    )
+      return;
+    if (
       this.options.analytics &&
       (await this.options.analytics.processConversationText(
         text,
@@ -909,7 +937,7 @@ export class TopicApprovalService {
     );
   }
 
-  private async cancel(
+  async cancel(
     reference: string | undefined,
     update: TelegramUpdate,
     actor: TelegramActor,
@@ -929,6 +957,16 @@ export class TopicApprovalService {
       reference,
       await this.options.repository.listQueue(),
     );
+    if (
+      item.approvalStatus === "cancelled" &&
+      item.triggerState === "cancelled"
+    ) {
+      await this.options.adapter.sendStatusMessage(
+        actor.chatId,
+        "Approved topic is already cancelled; history remains preserved.",
+      );
+      return;
+    }
     if (
       item.approvalStatus !== "approved" ||
       item.triggerState !== "topic_approved_event_created"
@@ -975,7 +1013,7 @@ export class TopicApprovalService {
     await this.refreshMessage(updated);
     await this.options.adapter.sendStatusMessage(
       actor.chatId,
-      "Approved topic cancelled before research processing.",
+      "Approved topic cancelled before publication. Immutable research history was preserved.",
     );
   }
 

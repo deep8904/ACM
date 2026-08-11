@@ -140,7 +140,7 @@ export function formatQueue(
       "<b>Topic queue</b>",
       ...visible.map(
         (item) =>
-          `${escapeTelegramHtml(item.shortId)} · ${item.approvalStatus} · ${escapeTelegramHtml(item.candidateSnapshot.candidate.title)}`,
+          `${escapeTelegramHtml(item.shortId)} · ${item.approvalStatus} · ${item.researchReadiness} · ${escapeTelegramHtml(item.candidateSnapshot.candidate.title)}`,
       ),
     ].join("\n"),
     telegramMessageLimit,
@@ -162,6 +162,7 @@ export const helpText = `<b>AI Content Machine — topic approval</b>
 /jobs — queued, running, failed, and blocked automation jobs
 /retry &lt;automationjob_id&gt; — safely retry a failed or blocked job
 /cancel_job &lt;automationjob_id&gt; — safely cancel queued work
+/add_source &lt;topic_id&gt; — recover blocked research with a public source URL
 /system_status — database, webhook, scheduler, worker, GitHub, Vercel, and AI readiness
 /drafts — list final article approval state
 /review &lt;topic_id&gt; — open the final review card
