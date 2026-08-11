@@ -411,7 +411,9 @@ export class PostgresApprovedEventRepository implements ApprovedEventRepository 
       event.status === "cancelled" ||
       !queue ||
       queue.approvalStatus !== "approved" ||
-      queue.researchReadiness !== "ready_for_research"
+      !["ready_for_research", "awaiting_source"].includes(
+        queue.researchReadiness,
+      )
     );
   }
   async isConsumed(id: string) {
