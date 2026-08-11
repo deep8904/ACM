@@ -29,6 +29,7 @@ import {
   parseApprovedResearchLineage,
   type ApprovedResearchLineageRow,
 } from "./approved-lineage";
+import type { RetrievalDiagnosticCode } from "./retrieve";
 
 type PayloadRow = { payload: unknown };
 type ApprovedEventRow = {
@@ -170,6 +171,110 @@ export class PostgresResearchSourceRepository
   async putRobots(host: string, body: string, fetchedAt: string) {
     await this
       .sql`insert into content_machine.robots_cache(host,body,fetched_at) values (${host},${body},${fetchedAt}) on conflict(host) do update set body=excluded.body,fetched_at=excluded.fetched_at`;
+  }
+  async claimRetrievalAttempt(input: {
+    host: string;
+    canonicalUrl: string;
+    attemptedAt: string;
+    budget: number;
+    windowMs: number;
+    cooldownMs: number;
+  }) {
+    return withTransaction(this.sql, async (tx) => {
+      const rows = await tx<
+        {
+          attempt_count: number;
+          window_started_at: Date | string;
+          cooldown_until: Date | string | null;
+        }[]
+      >`select attempt_count,window_started_at,cooldown_until
+        from content_machine.research_retrieval_host_state
+        where host=${input.host} for update`;
+      const old = rows[0];
+      const at = Date.parse(input.attemptedAt);
+      if (old?.cooldown_until && new Date(old.cooldown_until).getTime() > at)
+        return {
+          allowed: false,
+          retryAt: new Date(old.cooldown_until).toISOString(),
+        };
+      const inWindow = Boolean(
+        old && at - new Date(old.window_started_at).getTime() < input.windowMs,
+      );
+      const attemptCount = inWindow ? (old?.attempt_count ?? 0) + 1 : 1;
+      const windowStartedAt = inWindow
+        ? new Date(old!.window_started_at).toISOString()
+        : input.attemptedAt;
+      const retryAt =
+        attemptCount > input.budget
+          ? new Date(at + input.cooldownMs).toISOString()
+          : undefined;
+      await tx`
+        insert into content_machine.research_retrieval_host_state
+          (host,attempt_count,window_started_at,cooldown_until,updated_at)
+        values (${input.host},${attemptCount},${windowStartedAt},${retryAt ?? null},now())
+        on conflict(host) do update set attempt_count=excluded.attempt_count,
+          window_started_at=excluded.window_started_at,
+          cooldown_until=excluded.cooldown_until,updated_at=now()
+      `;
+      return retryAt ? { allowed: false, retryAt } : { allowed: true as const };
+    });
+  }
+  async getRetrievalOutcome(canonicalUrl: string, at: string) {
+    const rows = await this.sql<
+      {
+        diagnostic_code: RetrievalDiagnosticCode;
+        retry_at: Date | string | null;
+        expires_at: Date | string;
+      }[]
+    >`select diagnostic_code,retry_at,expires_at
+      from content_machine.research_retrieval_outcomes
+      where canonical_url=${canonicalUrl} and expires_at>${at}`;
+    const value = rows[0];
+    return value
+      ? {
+          code: value.diagnostic_code,
+          retryAt: value.retry_at
+            ? new Date(value.retry_at).toISOString()
+            : undefined,
+          expiresAt: new Date(value.expires_at).toISOString(),
+        }
+      : undefined;
+  }
+  async putRetrievalOutcome(input: {
+    host: string;
+    canonicalUrl: string;
+    code: RetrievalDiagnosticCode;
+    retryAt?: string;
+    status: number;
+    recordedAt: string;
+    expiresAt: string;
+  }) {
+    await withTransaction(this.sql, async (tx) => {
+      await tx`
+        insert into content_machine.research_retrieval_outcomes
+          (canonical_url,host,diagnostic_code,http_status,retry_at,expires_at,recorded_at)
+        values (${input.canonicalUrl},${input.host},${input.code},${input.status},${input.retryAt ?? null},${input.expiresAt},${input.recordedAt})
+        on conflict(canonical_url) do update set host=excluded.host,
+          diagnostic_code=excluded.diagnostic_code,http_status=excluded.http_status,
+          retry_at=excluded.retry_at,expires_at=excluded.expires_at,
+          recorded_at=excluded.recorded_at,updated_at=now()
+      `;
+      if (input.retryAt)
+        await tx`
+          insert into content_machine.research_retrieval_host_state
+            (host,attempt_count,window_started_at,cooldown_until,updated_at)
+          values (${input.host},1,${input.recordedAt},${input.retryAt},now())
+          on conflict(host) do update set cooldown_until=greatest(
+            coalesce(content_machine.research_retrieval_host_state.cooldown_until, excluded.cooldown_until),
+            excluded.cooldown_until
+          ),updated_at=now()
+        `;
+    });
+  }
+  async clearRetrievalOutcome(host: string, canonicalUrl: string) {
+    void host;
+    await this
+      .sql`delete from content_machine.research_retrieval_outcomes where canonical_url=${canonicalUrl}`;
   }
 }
 

@@ -68,6 +68,22 @@ const proposalSchema = z
     contentHash: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict();
+const retrievalFailureSchema = z
+  .object({
+    code: z.enum([
+      "429_retry_after",
+      "429_cooldown",
+      "robots_denied",
+      "403_forbidden",
+      "no_retrievable_primary",
+      "retrieval",
+      "unsafe_url",
+      "duplicate",
+    ]),
+    diagnosticId: z.string().regex(/^diag_[a-f0-9]{16}$/),
+    retryAt: iso.optional(),
+  })
+  .strict();
 
 export const researchRemediationSchema = z
   .object({
@@ -90,6 +106,8 @@ export const researchRemediationSchema = z
     ]),
     reason: z.string().min(1).max(1000),
     proposal: proposalSchema.optional(),
+    pendingUrl: z.string().url().optional(),
+    retrievalFailure: retrievalFailureSchema.optional(),
     createdAt: iso,
     updatedAt: iso,
     expiresAt: iso,
@@ -392,10 +410,13 @@ export class ResearchRemediationService {
           dedupeKey: diagnosticId,
           details: { category },
         });
-        throw new TelegramControlError(
-          "invalid_url",
-          `${error.message}. Try another public URL. Reference: ${diagnosticId}`,
-          400,
+        throw new ResearchRemediationInspectionError(
+          `${error.message}. Reference: ${diagnosticId}`,
+          category,
+          diagnosticId,
+          error instanceof ResearchSourceInspectionError
+            ? error.retryAt
+            : undefined,
         );
       }
       throw error;
@@ -456,6 +477,83 @@ export class ResearchRemediationService {
       details: { packetVersion: packet.version, recoveryJobId: job.id },
     });
     return { packet, job };
+  }
+
+  async scheduleRetry(state: ResearchRemediation, dedupeKey: string) {
+    await this.assertCurrent(state, ["blocked"]);
+    if (!state.pendingUrl || !state.retrievalFailure)
+      throw new TelegramControlError(
+        "invalid_state_transition",
+        "There is no failed source request to retry.",
+        409,
+      );
+    if (
+      !["429_retry_after", "429_cooldown"].includes(state.retrievalFailure.code)
+    )
+      throw new TelegramControlError(
+        "invalid_state_transition",
+        "This failure is not retryable. Paste another official URL instead.",
+        409,
+      );
+    const availableAt =
+      state.retrievalFailure.retryAt ??
+      new Date(this.now().getTime() + 30 * 60_000).toISOString();
+    const job = await this.deps.jobs.enqueue({
+      type: "research",
+      idempotencyKey: automationKey(
+        `research-source-retry:${state.id}:${state.pendingUrl}:${state.retrievalFailure.diagnosticId}`,
+      ),
+      lineageKey: state.eventId,
+      topicId: state.topicId,
+      parentJobId: state.jobId,
+      maximumAttempts: 1,
+      availableAt,
+      payload: {
+        eventId: state.eventId,
+        remediationId: state.id,
+        remediationShortId: state.shortId,
+        remediationAction: "retry_source",
+      },
+    });
+    await this.deps.remediation.audit({
+      remediationId: state.id,
+      topicId: state.topicId,
+      jobId: state.jobId,
+      action: "retry_later_scheduled",
+      dedupeKey,
+      diagnosticId: state.retrievalFailure.diagnosticId,
+      details: { retryJobId: job.id, availableAt },
+    });
+    return job;
+  }
+
+  async findOfficialAlternatives(
+    state: ResearchRemediation,
+    dedupeKey: string,
+  ) {
+    await this.assertCurrent(state, ["blocked"]);
+    if (!state.pendingUrl)
+      throw new TelegramControlError(
+        "invalid_state_transition",
+        "There is no failed official URL to use for discovery.",
+        409,
+      );
+    const alternatives = await this.deps.research.findOfficialAlternatives({
+      topicId: state.topicId,
+      url: state.pendingUrl,
+    });
+    await this.deps.remediation.audit({
+      remediationId: state.id,
+      topicId: state.topicId,
+      jobId: state.jobId,
+      action: alternatives.length
+        ? "alternate_official_found"
+        : "no_retrievable_primary",
+      dedupeKey,
+      diagnosticId: state.retrievalFailure?.diagnosticId,
+      details: { count: alternatives.length },
+    });
+    return alternatives;
   }
 
   async cancelJob(state: ResearchRemediation, dedupeKey: string) {
@@ -555,6 +653,9 @@ type CallbackAction =
   | "primary"
   | "independent"
   | "details"
+  | "retry_later"
+  | "find_official"
+  | "paste_another"
   | "resume";
 
 export class ResearchRemediationTelegramController implements FinalReviewControl {
@@ -627,6 +728,48 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       );
   }
 
+  async processScheduledRetry(job: AutomationJob) {
+    const shortId = job.payload.remediationShortId;
+    if (
+      job.payload.remediationAction !== "retry_source" ||
+      typeof shortId !== "string"
+    )
+      throw new Error("Scheduled remediation retry payload is invalid");
+    const state = await this.deps.repository.getByShortId(shortId);
+    if (!state || !state.pendingUrl || state.state !== "blocked")
+      return { skipped: true, reason: "remediation_state_advanced" };
+    const pendingUrl = state.pendingUrl;
+    const awaiting = await this.transition(state, "awaiting_url");
+    try {
+      const proposal = await this.deps.service.inspect(awaiting, pendingUrl);
+      const next = await this.transition(awaiting, "awaiting_classification", {
+        proposal,
+        pendingUrl: undefined,
+        retrievalFailure: undefined,
+      });
+      await this.deps.adapter.sendFinalReviewCard(
+        next.chatId,
+        classificationCard(next, this.deps.callbackSecret),
+      );
+      return { skipped: false, proposalReady: true };
+    } catch (error) {
+      if (!(error instanceof ResearchRemediationInspectionError)) throw error;
+      const next = await this.transition(awaiting, "blocked", {
+        proposal: undefined,
+        retrievalFailure: {
+          code: error.category,
+          diagnosticId: error.diagnosticId,
+          retryAt: error.retryAt,
+        },
+      });
+      await this.deps.adapter.sendFinalReviewCard(
+        next.chatId,
+        retrievalRecoveryCard(next, this.deps.callbackSecret),
+      );
+      return { skipped: false, proposalReady: false };
+    }
+  }
+
   async processCallback(update: TelegramUpdate, actor: TelegramActor) {
     const query = update.callback_query;
     if (!query?.data)
@@ -694,8 +837,39 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       throw new TelegramControlError("stale_callback", staleCardMessage, 409);
     }
     await this.deps.adapter.answerCallback(query.id);
-    if (parsed.action === "add") {
+    if (parsed.action === "add" || parsed.action === "paste_another") {
       await this.promptForUrl(state);
+    } else if (parsed.action === "retry_later") {
+      const result = await this.deps.service.scheduleRetry(state, query.id);
+      const next = await this.transition(state, "blocked", {
+        expiresAt: new Date(
+          Date.parse(result.availableAt) + 30 * 60_000,
+        ).toISOString(),
+      });
+      await this.deps.adapter.sendStatusMessage(
+        actor.chatId,
+        `<b>Retry scheduled</b>\nThe official URL will be checked once after the host cooldown, no earlier than ${escape(result.availableAt)}. No packet or source was added.`,
+      );
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        blockedCard(next, this.deps.callbackSecret),
+      );
+    } else if (parsed.action === "find_official") {
+      const alternatives = await this.deps.service.findOfficialAlternatives(
+        state,
+        query.id,
+      );
+      const next = await this.transition(state, "blocked");
+      await this.deps.adapter.sendStatusMessage(
+        actor.chatId,
+        alternatives.length
+          ? `<b>Official alternatives found</b>\n${alternatives.map((url, index) => `${index + 1}. ${escape(url)}`).join("\n")}\n\nNothing was added. Tap Paste another URL and send the option you want to inspect and confirm.`
+          : "<b>No retrievable official alternative found</b>\nThe verified publisher host is unavailable or in cooldown. The topic remains blocked; no third-party page was promoted to primary.",
+      );
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        retrievalRecoveryCard(next, this.deps.callbackSecret),
+      );
     } else if (parsed.action === "cancel") {
       const next = await this.cancelInteraction(state, query.id);
       await this.deps.adapter.sendFinalReviewCard(
@@ -758,6 +932,22 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
     try {
       proposal = await this.deps.service.inspect(state, text);
     } catch (error) {
+      if (error instanceof ResearchRemediationInspectionError) {
+        const next = await this.transition(state, "blocked", {
+          proposal: undefined,
+          pendingUrl: text,
+          retrievalFailure: {
+            code: error.category,
+            diagnosticId: error.diagnosticId,
+            retryAt: error.retryAt,
+          },
+        });
+        await this.deps.adapter.sendFinalReviewCard(
+          actor.chatId,
+          retrievalRecoveryCard(next, this.deps.callbackSecret),
+        );
+        return true;
+      }
       if (error instanceof TelegramControlError) throw error;
       const diagnosticId = `diag_${hash(`${state.id}:continuation:${this.now().toISOString()}`).slice(0, 16)}`;
       try {
@@ -803,6 +993,8 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
   private async promptForUrl(state: ResearchRemediation) {
     const next = await this.transition(state, "awaiting_url", {
       proposal: undefined,
+      pendingUrl: undefined,
+      retrievalFailure: undefined,
     });
     await this.deps.adapter.sendFinalReviewCard(
       next.chatId,
@@ -817,6 +1009,8 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
     const next = researchRemediationSchema.parse({
       ...state,
       proposal: undefined,
+      pendingUrl: undefined,
+      retrievalFailure: undefined,
       state: "blocked",
       updatedAt: this.now().toISOString(),
       version: state.version + 1,
@@ -833,7 +1027,14 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
     state: ResearchRemediation,
     nextState: ResearchRemediation["state"],
     changes: Partial<
-      Pick<ResearchRemediation, "proposal" | "packetVersion">
+      Pick<
+        ResearchRemediation,
+        | "proposal"
+        | "packetVersion"
+        | "pendingUrl"
+        | "retrievalFailure"
+        | "expiresAt"
+      >
     > = {},
   ) {
     const next = researchRemediationSchema.parse({
@@ -900,6 +1101,24 @@ function blockedCard(state: ResearchRemediation, secret: string) {
       [button("Add primary source", "add", state, secret)],
       [button("Cancel approved topic…", "change", state, secret)],
       [button("Details", "details", state, secret)],
+    ],
+  };
+}
+
+function retrievalRecoveryCard(state: ResearchRemediation, secret: string) {
+  const failure = state.retrievalFailure;
+  if (!failure) throw new Error("Retrieval failure is missing");
+  const retryable = ["429_retry_after", "429_cooldown"].includes(failure.code);
+  return {
+    topicId: state.topicId,
+    text: `<b>Official source could not be retrieved</b>\nReason: ${escape(failure.code)}\nReference: ${escape(failure.diagnosticId)}${failure.retryAt ? `\nHost cooldown until: ${escape(failure.retryAt)}` : ""}\n\nThe topic remains blocked and no source was added.`,
+    buttons: [
+      ...(retryable
+        ? [[button("Retry later", "retry_later", state, secret)]]
+        : []),
+      [button("Find another official source", "find_official", state, secret)],
+      [button("Paste another URL", "paste_another", state, secret)],
+      [button("Cancel source attempt", "cancel", state, secret)],
     ],
   };
 }
@@ -990,6 +1209,9 @@ function createCallback(
     primary: "p",
     independent: "i",
     details: "d",
+    retry_later: "t",
+    find_official: "f",
+    paste_another: "u",
   }[action];
   const payload = `q:${code}:${shortId}:${version}`;
   return `${payload}:${sign(payload, secret)}`;
@@ -1023,7 +1245,7 @@ function parseCallback(value: string, secret: string, actor: TelegramActor) {
     };
   }
   const match =
-    /^q:([ahcxkpid]):([a-f0-9]{12}):(\d+):([A-Za-z0-9_-]{10})$/.exec(value);
+    /^q:([ahcxkpidtfu]):([a-f0-9]{12}):(\d+):([A-Za-z0-9_-]{10})$/.exec(value);
   if (!match) throw new RemediationCallbackError("malformed");
   const [, code, shortId, rawVersion, provided] = match;
   const payload = `q:${code}:${shortId}:${rawVersion}`;
@@ -1038,6 +1260,9 @@ function parseCallback(value: string, secret: string, actor: TelegramActor) {
     p: "primary",
     i: "independent",
     d: "details",
+    t: "retry_later",
+    f: "find_official",
+    u: "paste_another",
   }[code ?? ""];
   if (!action) throw new RemediationCallbackError("unregistered_action");
   return {
@@ -1050,6 +1275,17 @@ function parseCallback(value: string, secret: string, actor: TelegramActor) {
 class RemediationCallbackError extends TelegramControlError {
   constructor(readonly condition: string) {
     super("stale_callback", staleCardMessage);
+  }
+}
+
+export class ResearchRemediationInspectionError extends TelegramControlError {
+  constructor(
+    message: string,
+    readonly category: z.infer<typeof retrievalFailureSchema>["code"],
+    readonly diagnosticId: string,
+    readonly retryAt?: string,
+  ) {
+    super("invalid_url", message, 400);
   }
 }
 
