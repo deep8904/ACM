@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -14,9 +14,11 @@ import {
   researchSourceSchema,
 } from "../models";
 import { ResearchService } from "../service";
+import { writeAssistanceTask } from "../assisted";
 import type { ResearchFetch } from "../retrieve";
 import {
   FileResearchJobRepository,
+  FileHumanAssistedEvidenceRepository,
   FileResearchPacketRepository,
   FileResearchSourceExtensionRepository,
   FileResearchSourceRepository,
@@ -52,6 +54,103 @@ const queue = {
 };
 
 describe("research source extension", () => {
+  it("persists official human-assisted evidence and one immutable packet version idempotently", async () => {
+    const fixture = await createFixture();
+    const input = {
+      topicId,
+      remediationId: "remediation_aaaaaaaaaaaaaaaaaaaaaaaa",
+      eventId: event.id,
+      jobId: "automationjob_aaaaaaaaaaaaaaaaaaaaaaaa",
+      url: fieldReference().url,
+      evidenceText:
+        "GitHub states that the Copilot usage metrics API includes totals by third-party agent. Each entry has an agent identifier and agent name, and the report includes aggregated session counts for supported enterprise reporting workflows.",
+      operatorActorHash: "b".repeat(64),
+      provenanceStatement:
+        "I copied this evidence from the official GitHub page shown above.",
+      originalFailureCode: "429_cooldown" as const,
+      originalDiagnosticId: "diag_a4976f04b106b3e8",
+    };
+
+    const accepted = await fixture.service.acceptHumanAssistedEvidence(input);
+    const replay = await fixture.service.acceptHumanAssistedEvidence(input);
+
+    expect(accepted.version).toBe(2);
+    expect(accepted.status).toBe("awaiting_assisted_synthesis");
+    expect(accepted.sufficient).toBe(false);
+    expect(replay.version).toBe(2);
+    expect((await fixture.packets.get(topicId))?.version).toBe(2);
+    expect(accepted.provenance.humanAssistedEvidence).toMatchObject({
+      acquisitionMode: "human_assisted_primary_evidence",
+      canonicalUrl: fieldReference().url,
+      operatorActorHash: "b".repeat(64),
+      originalRetrievalFailure: {
+        code: "429_cooldown",
+        diagnosticId: "diag_a4976f04b106b3e8",
+      },
+    });
+    expect(
+      accepted.sourceIndex.find(
+        (source) =>
+          source.acquisitionMode === "human_assisted_primary_evidence",
+      ),
+    ).toMatchObject({
+      authority: "primary",
+      extractionMethod: "human_evidence",
+    });
+    const taskDir = await writeAssistanceTask(
+      accepted,
+      join(fixture.root, "tasks"),
+      "prompts/research-synthesis.md",
+    );
+    const task = JSON.parse(
+      await readFile(join(taskDir, "research-input.json"), "utf8"),
+    );
+    expect(task.sourceHierarchy).toContainEqual(
+      expect.objectContaining({
+        acquisitionMode: "human_assisted_primary_evidence",
+        evidenceRecordId:
+          accepted.provenance.humanAssistedEvidence?.evidenceRecordId,
+      }),
+    );
+  });
+
+  it("rejects third-party, blank, and oversized human evidence", async () => {
+    const fixture = await createFixture();
+    const base = {
+      topicId,
+      remediationId: "remediation_aaaaaaaaaaaaaaaaaaaaaaaa",
+      eventId: event.id,
+      jobId: "automationjob_aaaaaaaaaaaaaaaaaaaaaaaa",
+      operatorActorHash: "b".repeat(64),
+      provenanceStatement: "I copied this evidence from the official page.",
+      originalFailureCode: "403_forbidden" as const,
+      originalDiagnosticId: "diag_a4976f04b106b3e8",
+    };
+    await expect(
+      fixture.service.acceptHumanAssistedEvidence({
+        ...base,
+        url: "https://example.net/report/copilot-metrics",
+        evidenceText:
+          "A third-party report contains enough words and characters to otherwise pass the content size check, but it must never become primary evidence for this official publisher topic under any circumstances.",
+      }),
+    ).rejects.toThrow(/verified official publisher URL/);
+    await expect(
+      fixture.service.acceptHumanAssistedEvidence({
+        ...base,
+        url: fieldReference().url,
+        evidenceText: "   ",
+      }),
+    ).rejects.toThrow();
+    await expect(
+      fixture.service.acceptHumanAssistedEvidence({
+        ...base,
+        url: fieldReference().url,
+        evidenceText: "x".repeat(20_001),
+      }),
+    ).rejects.toThrow();
+    expect((await fixture.packets.get(topicId))?.version).toBe(1);
+  });
+
   it("inspects an official owner without silently adding or escalating it", async () => {
     const fixture = await createFixture();
     const proposal = await fixture.service.inspectSource({
@@ -276,6 +375,7 @@ async function createFixture(
     cache: sources,
     extensions:
       extensionOverride ?? new FileResearchSourceExtensionRepository(root),
+    humanEvidence: new FileHumanAssistedEvidenceRepository(root),
     catalog: {
       latestRunId: async () => event.runId,
       getRun: async () => ({
@@ -301,6 +401,7 @@ async function createFixture(
             )),
   });
   return {
+    root,
     service,
     packets,
     sources,

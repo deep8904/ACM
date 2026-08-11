@@ -38,12 +38,17 @@ export async function writeAssistanceTask(
       publisher: s.publisher,
       authority: s.authority,
       isPrimary: s.isPrimary,
+      acquisitionMode: s.acquisitionMode ?? "automatic_retrieval",
+      evidenceRecordId: s.evidenceRecordId,
+      originalRetrievalFailure: s.originalRetrievalFailure,
     })),
     sources: packet.sourceIndex.map((s) => ({
       id: s.id,
       summary: s.summary,
       publishedAt: s.publishedAt,
       excerpts: s.selectedExcerpts,
+      acquisitionMode: s.acquisitionMode ?? "automatic_retrieval",
+      canonicalUrl: s.canonicalUrl,
     })),
     deterministicFacts: packet.facts,
     conflicts: packet.conflicts,
@@ -255,6 +260,7 @@ export async function importAssistance(
       promptVersion: base.provenance.promptVersion,
       sourcePacketVersion: base.version,
       importHash,
+      humanAssistedEvidence: base.provenance.humanAssistedEvidence,
     },
   });
   if (imports) return imports.persist(next, now);

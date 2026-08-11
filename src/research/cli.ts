@@ -22,8 +22,17 @@ const composition = createRepositoryComposition(
     : process.env,
 );
 await composition.verify();
-const { events, jobs, packets, sources, cache, tasks, imports, extensions } =
-  composition.research;
+const {
+  events,
+  jobs,
+  packets,
+  sources,
+  cache,
+  tasks,
+  imports,
+  extensions,
+  humanEvidence,
+} = composition.research;
 const service = new ResearchService({
   events,
   jobs,
@@ -31,6 +40,7 @@ const service = new ResearchService({
   sources,
   cache,
   extensions,
+  humanEvidence,
   catalog: composition.catalog,
   config,
   fetch: fixtureRoot ? fixtureFetch(fixtureRoot) : undefined,

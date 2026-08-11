@@ -234,6 +234,7 @@ export function buildTelegramWebhookHandler(
           sources: composition.research.sources,
           cache: composition.research.cache,
           extensions: composition.research.extensions,
+          humanEvidence: composition.research.humanEvidence,
           catalog: composition.catalog,
           config: researchConfig,
         });

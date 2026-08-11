@@ -370,6 +370,7 @@ describe("Telegram research remediation", () => {
     )?.card;
     expect(card?.text).toContain("429_cooldown");
     expect(card?.buttons.flat().map((button) => button.text)).toEqual([
+      "Provide source evidence",
       "Retry later",
       "Find another official source",
       "Paste another URL",
@@ -420,6 +421,138 @@ describe("Telegram research remediation", () => {
       ),
     ).rejects.toThrow(/stale/);
     expect(harness.service.scheduleRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("collects actor-scoped text, confirms provenance, and accepts evidence once", async () => {
+    const harness = createHarness();
+    await harness.repository.save(
+      researchRemediationSchema.parse({
+        ...baseState(),
+        pendingUrl: "https://nuphy.com/blogs/journal/your-questions-answered",
+        retrievalFailure: {
+          code: "429_cooldown",
+          diagnosticId: "diag_a4976f04b106b3e8",
+        },
+      }),
+    );
+    harness.service.openBlocked.mockResolvedValueOnce(
+      (await harness.repository.getForActor("100", "200"))!,
+    );
+    await harness.controller.notifyBlocked(blockedJob() as never, actor);
+    const provide = requiredButton(harness.adapter, "Provide source evidence");
+
+    await harness.controller.processCallback(callbackUpdate(provide), actor);
+    expect((await harness.repository.getForActor("100", "200"))?.state).toBe(
+      "awaiting_evidence",
+    );
+    await expect(
+      harness.controller.processConversationText(
+        "This evidence belongs to someone else and must not be consumed.",
+        messageUpdate(),
+        { ...actor, userId: "201" },
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      harness.controller.processConversationText("   ", messageUpdate(), actor),
+    ).rejects.toThrow(/cannot be blank/);
+    const evidence =
+      "NuPhy states that the product supports several connection modes and includes configurable features for customers. The official page answers common questions and explains what is included, how the device works, and which options are supported.";
+    await harness.controller.processConversationText(
+      evidence,
+      messageUpdate(),
+      actor,
+    );
+    const review = requiredButton(harness.adapter, "Review evidence");
+    await harness.controller.processCallback(
+      callbackUpdate(review, 2, "review-evidence"),
+      actor,
+    );
+    const confirm = requiredButton(harness.adapter, "Confirm provenance");
+    await harness.controller.processCallback(
+      callbackUpdate(confirm, 3, "confirm-evidence"),
+      actor,
+    );
+    await harness.controller.processCallback(
+      callbackUpdate(confirm, 4, "confirm-evidence-replay"),
+      actor,
+    );
+
+    expect(harness.service.acceptEvidence).toHaveBeenCalledTimes(1);
+    expect((await harness.repository.getForActor("100", "200"))?.state).toBe(
+      "queued",
+    );
+    expect(harness.cancelTopic).not.toHaveBeenCalled();
+  });
+
+  it("rejects a third-party URL before entering evidence collection", async () => {
+    const harness = createHarness();
+    const state = await harness.repository.save(
+      researchRemediationSchema.parse({
+        ...baseState(),
+        pendingUrl: "https://example.com/nuphy-report",
+        retrievalFailure: {
+          code: "403_forbidden",
+          diagnosticId: "diag_a4976f04b106b3e8",
+        },
+      }),
+    );
+    harness.service.openBlocked.mockResolvedValueOnce(state);
+    harness.service.verifyEvidencePath.mockRejectedValueOnce(
+      new TelegramControlError(
+        "invalid_url",
+        "verified official publisher URL required",
+        400,
+      ),
+    );
+    await harness.controller.notifyBlocked(blockedJob() as never, actor);
+    const provide = requiredButton(harness.adapter, "Provide source evidence");
+
+    await expect(
+      harness.controller.processCallback(callbackUpdate(provide), actor),
+    ).rejects.toThrow(/official publisher URL/);
+    expect((await harness.repository.getForActor("100", "200"))?.state).toBe(
+      "blocked",
+    );
+  });
+
+  it("cancels evidence entry without cancelling the topic or job", async () => {
+    const harness = createHarness();
+    const state = await harness.repository.save(
+      researchRemediationSchema.parse({
+        ...baseState(),
+        pendingUrl: "https://nuphy.com/blogs/journal/your-questions-answered",
+        retrievalFailure: {
+          code: "429_cooldown",
+          diagnosticId: "diag_a4976f04b106b3e8",
+        },
+      }),
+    );
+    harness.service.openBlocked.mockResolvedValueOnce(state);
+    await harness.controller.notifyBlocked(blockedJob() as never, actor);
+    await harness.controller.processCallback(
+      callbackUpdate(
+        requiredButton(harness.adapter, "Provide source evidence"),
+      ),
+      actor,
+    );
+    await harness.controller.processConversationText(
+      "A relevant official excerpt is supplied for review and it includes enough detail to remain useful while testing cancellation behavior safely.",
+      messageUpdate(),
+      actor,
+    );
+    const cancel = requiredButton(harness.adapter, "Cancel evidence entry");
+    await harness.controller.processCallback(
+      callbackUpdate(cancel, 2, "cancel-evidence"),
+      actor,
+    );
+
+    expect(await harness.repository.getForActor("100", "200")).toMatchObject({
+      state: "blocked",
+      evidenceChunks: undefined,
+      pendingUrl: "https://nuphy.com/blogs/journal/your-questions-answered",
+    });
+    expect(harness.cancelTopic).not.toHaveBeenCalled();
+    expect(harness.service.cancelJob).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -764,6 +897,17 @@ function createHarness() {
       availableAt: "2026-08-11T12:15:00.000Z",
     })),
     findOfficialAlternatives: vi.fn(async () => []),
+    verifyEvidencePath: vi.fn(async () => ({
+      canonicalUrl: "https://nuphy.com/blogs/journal/your-questions-answered",
+    })),
+    acceptEvidence: vi.fn(async () => ({
+      packet: { version: 7 },
+      job: { id: "automationjob_bbbbbbbbbbbbbbbbbbbbbbbb" },
+      provenance: {
+        evidenceRecordId: "evidence_bbbbbbbbbbbbbbbbbbbbbbbb",
+        evidenceHash: "b".repeat(64),
+      },
+    })),
   };
   const cancelTopic = vi.fn(async () => undefined);
   const refreshTopics = vi.fn(async () => undefined);

@@ -27,6 +27,7 @@ describe("database migrations", () => {
       "018",
       "019",
       "020",
+      "021",
     ]);
     const sql = migrations.map((item) => item.sql).join("\n");
     expect(sql).toContain("create schema if not exists content_machine");
@@ -71,6 +72,7 @@ describe("database migrations", () => {
       "production_publication_artifacts",
       "social_distribution_events",
       "social_assets",
+      "research_source_evidence_records",
     ])
       expect(sql).toContain(`${table}_immutable`);
   });
