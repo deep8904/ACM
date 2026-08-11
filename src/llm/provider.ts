@@ -106,10 +106,6 @@ export class GeminiLLMProvider implements LLMProvider {
               contents: [{ role: "user", parts: [{ text: requestText }] }],
               generationConfig: {
                 responseMimeType: "application/json",
-                temperature:
-                  input.stage === "writing" || input.stage === "revision"
-                    ? 0.35
-                    : 0.1,
                 maxOutputTokens:
                   input.stage === "writing" || input.stage === "revision"
                     ? 16384
@@ -247,7 +243,7 @@ export function createConfiguredLlmProvider(
     throw new Error(`Unsupported LLM_PROVIDER: ${provider}`);
   return new GeminiLLMProvider({
     apiKey: environment.GOOGLE_AI_API_KEY ?? "",
-    model: environment.GOOGLE_AI_MODEL ?? "gemini-2.5-flash",
+    model: environment.GOOGLE_AI_MODEL ?? "gemini-3.6-flash",
     sql,
   });
 }
