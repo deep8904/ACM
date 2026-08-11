@@ -4,8 +4,11 @@ import type { TelegramActor } from "../telegram/authorization";
 import { RecordingTelegramAdapter } from "../telegram/recording-adapter";
 import type { TelegramUpdate } from "../telegram/models";
 import {
+  ResearchRemediationService,
   ResearchRemediationTelegramController,
+  researchRemediationCallbackSecret,
   researchRemediationSchema,
+  shouldIssueBlockedRemediationCard,
   type ResearchRemediation,
   type ResearchRemediationRepository,
 } from "./remediation";
@@ -19,6 +22,93 @@ const actor: TelegramActor = {
 const now = new Date("2026-08-11T12:00:00.000Z");
 
 describe("Telegram research remediation", () => {
+  it("creates and sends a fresh card whose Details callback is immediately valid", async () => {
+    const harness = createIntegratedHarness();
+
+    await harness.controller.notifyBlocked(recoverableJob() as never, actor);
+
+    const callback = requiredButton(harness.adapter, "Details");
+    const persisted = await harness.repository.getForActor("100", "200");
+    expect(callback.split(":")[3]).toBe("1");
+    expect(persisted?.version).toBe(1);
+
+    harness.adapter.calls.length = 0;
+    await harness.controller.processCallback(callbackUpdate(callback), actor);
+
+    expect(
+      harness.adapter.calls.filter((call) => call.method === "answerCallback"),
+    ).toHaveLength(1);
+    expect(harness.adapter.calls).toContainEqual(
+      expect.objectContaining({
+        method: "sendStatusMessage",
+        text: expect.stringContaining("Research recovery details"),
+      }),
+    );
+  });
+
+  it("makes the old card stale on refresh while keeping the newest card valid", async () => {
+    const harness = createIntegratedHarness();
+    await harness.controller.notifyBlocked(recoverableJob() as never, actor);
+    const oldCallback = requiredButton(harness.adapter, "Details");
+
+    await harness.controller.notifyBlocked(recoverableJob() as never, actor);
+    const newestCallback = requiredButton(harness.adapter, "Details");
+    const persisted = await harness.repository.getForActor("100", "200");
+
+    expect(oldCallback.split(":")[3]).toBe("1");
+    expect(newestCallback.split(":")[3]).toBe("2");
+    expect(persisted?.version).toBe(2);
+    await expect(
+      harness.controller.processCallback(callbackUpdate(oldCallback), actor),
+    ).rejects.toThrow("This card is stale; request a new one.");
+    expect(harness.logger).toHaveBeenCalledWith(
+      "warn",
+      "research_remediation_callback_rejected",
+      expect.objectContaining({
+        condition: "version_mismatch",
+        version: 1,
+        durableVersion: 2,
+      }),
+    );
+    await expect(
+      harness.controller.processCallback(
+        callbackUpdate(newestCallback, 2, "callback-2"),
+        actor,
+      ),
+    ).resolves.toBeUndefined();
+    expect((await harness.repository.getForActor("100", "200"))?.version).toBe(
+      2,
+    );
+  });
+
+  it("derives the remediation signer from the shared bot identity", () => {
+    const botToken = "123456789:shared-production-bot-token";
+    expect(researchRemediationCallbackSecret(botToken)).toBe(
+      researchRemediationCallbackSecret(botToken),
+    );
+    expect(researchRemediationCallbackSecret(botToken)).not.toBe(
+      researchRemediationCallbackSecret(
+        "987654321:different-production-bot-token",
+      ),
+    );
+  });
+
+  it("reissues one expired legacy card without turning scheduled runs into reminders", () => {
+    const expired = researchRemediationSchema.parse({
+      ...baseState(),
+      expiresAt: "2026-08-11T11:59:00.000Z",
+    });
+    expect(shouldIssueBlockedRemediationCard(undefined, now)).toBe(true);
+    expect(shouldIssueBlockedRemediationCard(expired, now)).toBe(true);
+    expect(
+      shouldIssueBlockedRemediationCard(
+        researchRemediationSchema.parse({ ...expired, version: 2 }),
+        now,
+      ),
+    ).toBe(false);
+    expect(shouldIssueBlockedRemediationCard(baseState(), now)).toBe(false);
+  });
+
   it("renders the blocked recovery card with only bounded research actions", async () => {
     const harness = createHarness();
     await harness.controller.notifyBlocked(blockedJob() as never, actor);
@@ -248,6 +338,52 @@ function createHarness() {
   };
 }
 
+function createIntegratedHarness() {
+  const repository = new MemoryRepository();
+  const adapter = new RecordingTelegramAdapter();
+  const packet = {
+    topicId: baseState().topicId,
+    approvedEventId: baseState().eventId,
+    version: 6,
+    sufficient: false,
+    blockingReasons: ["No primary source was retrieved"],
+  };
+  const event = { id: baseState().eventId, topicId: baseState().topicId };
+  const queue = {
+    approvalStatus: "approved",
+    researchReadiness: "awaiting_source",
+  };
+  const service = new ResearchRemediationService({
+    remediation: repository,
+    research: {} as never,
+    packets: { get: vi.fn(async () => packet) } as never,
+    events: {
+      get: vi.fn(async () => event),
+      queue: vi.fn(async () => queue),
+      isConsumed: vi.fn(async () => true),
+    } as never,
+    topics: { getQueueItem: vi.fn(async () => queue) } as never,
+    jobs: {} as never,
+    now: () => now,
+  });
+  const logger = vi.fn();
+  return {
+    repository,
+    adapter,
+    logger,
+    controller: new ResearchRemediationTelegramController({
+      service,
+      repository,
+      adapter,
+      callbackSecret: secret,
+      cancelTopic: vi.fn(async () => undefined),
+      refreshTopics: vi.fn(async () => undefined),
+      now: () => now,
+      logger,
+    }),
+  };
+}
+
 class MemoryRepository implements ResearchRemediationRepository {
   private value?: ResearchRemediation;
   async getByShortId(shortId: string) {
@@ -355,6 +491,15 @@ function blockedJob() {
     id: "automationjob_062356977f80a1ee382f965d",
     type: "research",
     status: "blocked",
+  };
+}
+
+function recoverableJob() {
+  return {
+    ...blockedJob(),
+    topicId: baseState().topicId,
+    lineageKey: baseState().eventId,
+    payload: { eventId: baseState().eventId },
   };
 }
 

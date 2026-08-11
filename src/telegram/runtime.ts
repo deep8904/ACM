@@ -39,6 +39,7 @@ import {
   PostgresResearchRemediationRepository,
   ResearchRemediationService,
   ResearchRemediationTelegramController,
+  researchRemediationCallbackSecret,
 } from "../research/remediation";
 
 export function buildTelegramWebhookHandler(
@@ -248,7 +249,9 @@ export function buildTelegramWebhookHandler(
           }),
           repository: remediationRepository,
           adapter,
-          callbackSecret: config.callbackSecret,
+          callbackSecret: researchRemediationCallbackSecret(
+            config.TELEGRAM_BOT_TOKEN as string,
+          ),
           cancelTopic: (topicId, update, actor) =>
             requiredTopicControl(topicControl).cancel(topicId, update, actor),
           refreshTopics: (chatId) =>
