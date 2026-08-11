@@ -423,6 +423,7 @@ export class ResearchRemediationService {
 }
 
 const commands = new Set(["/add_source", "/research_source"]);
+const staleCardMessage = "This card is stale; request a new one.";
 type CallbackAction =
   "add" | "change" | "cancel" | "primary" | "independent" | "details";
 
@@ -489,23 +490,12 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       state.chatId !== actor.chatId ||
       state.userId !== actor.userId
     )
-      throw new TelegramControlError(
-        "stale_callback",
-        "This research recovery action is not available to this operator.",
-        403,
-      );
+      throw new TelegramControlError("stale_callback", staleCardMessage, 403);
     if (state.version !== parsed.version)
-      throw new TelegramControlError(
-        "stale_callback",
-        "Research recovery state changed. Use /status to refresh.",
-        409,
-      );
+      throw new TelegramControlError("stale_callback", staleCardMessage, 409);
     if (Date.parse(state.expiresAt) <= this.now().getTime())
-      throw new TelegramControlError(
-        "stale_callback",
-        "This research recovery action expired.",
-        409,
-      );
+      throw new TelegramControlError("stale_callback", staleCardMessage, 409);
+    await this.deps.adapter.answerCallback(query.id);
     if (parsed.action === "add") {
       await this.promptForUrl(state);
     } else if (parsed.action === "details") {
@@ -538,7 +528,6 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
         await this.deps.refreshTopics(actor.chatId);
       }
     }
-    await this.deps.adapter.answerCallback(query.id, "Done");
   }
 
   async processConversationText(
@@ -666,17 +655,11 @@ function parseCallback(value: string, secret: string) {
     value,
   );
   if (!match)
-    throw new TelegramControlError(
-      "stale_callback",
-      "Invalid research recovery action",
-    );
+    throw new TelegramControlError("stale_callback", staleCardMessage);
   const [, code, shortId, rawVersion, provided] = match;
   const payload = `q:${code}:${shortId}:${rawVersion}`;
   if (!safeEqual(sign(payload, secret), provided ?? ""))
-    throw new TelegramControlError(
-      "stale_callback",
-      "Invalid research recovery action",
-    );
+    throw new TelegramControlError("stale_callback", staleCardMessage);
   const action = {
     a: "add",
     h: "change",
@@ -686,10 +669,7 @@ function parseCallback(value: string, secret: string) {
     d: "details",
   }[code ?? ""];
   if (!action)
-    throw new TelegramControlError(
-      "stale_callback",
-      "Invalid research recovery action",
-    );
+    throw new TelegramControlError("stale_callback", staleCardMessage);
   return {
     action: action as CallbackAction,
     shortId: shortId as string,
