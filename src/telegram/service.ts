@@ -164,6 +164,14 @@ export class TopicApprovalService {
         );
         return { status: "processed", action };
       }
+      this.logger("error", "Telegram update failed", {
+        stage: "AWAITING_TOPIC_APPROVAL",
+        telegramChatId: privacySafeChatId(actor.chatId),
+        action,
+        result: "failed",
+        failureSummary: safeUpdateError(error),
+        durationMs: Math.round(performance.now() - started),
+      });
       await this.options.repository.releaseUpdate(update.update_id, callbackId);
       throw error;
     }
@@ -1191,4 +1199,14 @@ function commandType(update: TelegramUpdate): string {
 
 function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function safeUpdateError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/https?:\/\/[^\s]+/gi, "[REDACTED_URL]")
+    .replace(/(key|token|secret)=[^\s&]+/gi, "$1=<redacted>")
+    .replace(/bot\d{6,}:[A-Za-z0-9_-]+/g, "<redacted bot token>")
+    .replace(/\b-?\d{6,}\b/g, "<redacted id>")
+    .slice(0, 500);
 }

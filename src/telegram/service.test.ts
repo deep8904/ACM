@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { RecordedTelegramCall } from "./recording-adapter";
 import { conversationStateSchema } from "./models";
+import { TelegramControlError } from "./errors";
+import type { FinalReviewControl } from "./service";
 import {
   callbackUpdate,
   createTelegramTestHarness,
@@ -187,6 +189,77 @@ describe("conversation state", () => {
       messageUpdate(45, "https://example.com/expired"),
     );
     expect(lastStatus(h.adapter.calls)).toMatch(/expired/);
+  });
+
+  it("dispatches remediation callback URL input exactly once and gives a deterministic second-message response", async () => {
+    let pendingActor: { chatId: string; userId: string } | undefined;
+    const processConversationText = vi.fn(
+      async (
+        _text: string,
+        _update: unknown,
+        actor: { chatId: string; userId: string },
+      ) => {
+        if (
+          !pendingActor ||
+          pendingActor.chatId !== actor.chatId ||
+          pendingActor.userId !== actor.userId
+        )
+          return false;
+        pendingActor = undefined;
+        return true;
+      },
+    );
+    const remediation = {
+      handlesCommand: () => false,
+      processCommand: vi.fn(),
+      processCallback: vi.fn(async (_update, actor) => {
+        pendingActor = actor;
+      }),
+      processConversationText,
+    } satisfies FinalReviewControl;
+    const h = await createTelegramTestHarness({
+      researchRemediation: remediation,
+    });
+
+    await h.service.processUpdate(
+      callbackUpdate(50, "add-source", "q:add:fixture"),
+    );
+    const urlUpdate = messageUpdate(51, "https://nuphy.com/example");
+    expect((await h.service.processUpdate(urlUpdate)).status).toBe("processed");
+    expect((await h.service.processUpdate(urlUpdate)).status).toBe("duplicate");
+    expect(processConversationText).toHaveBeenCalledTimes(1);
+
+    await h.service.processUpdate(
+      messageUpdate(52, "https://nuphy.com/second"),
+    );
+    expect(lastStatus(h.adapter.calls)).toMatch(/No input is expected/);
+  });
+
+  it("turns an expired remediation continuation into a clear Telegram response", async () => {
+    const remediation = {
+      handlesCommand: () => false,
+      processCommand: vi.fn(),
+      processCallback: vi.fn(),
+      processConversationText: vi.fn(async () => {
+        throw new TelegramControlError(
+          "stale_callback",
+          "This research recovery request expired. Open it again from /jobs.",
+          409,
+        );
+      }),
+    } satisfies FinalReviewControl;
+    const h = await createTelegramTestHarness({
+      researchRemediation: remediation,
+    });
+
+    expect(
+      (
+        await h.service.processUpdate(
+          messageUpdate(53, "https://nuphy.com/expired"),
+        )
+      ).status,
+    ).toBe("processed");
+    expect(lastStatus(h.adapter.calls)).toMatch(/expired.*\/jobs/i);
   });
 });
 

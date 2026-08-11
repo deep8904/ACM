@@ -17,6 +17,7 @@ export interface LogContext {
   telegramChatId?: string;
   action?: string;
   result?: string;
+  failureSummary?: string;
 }
 
 export interface LogRecord extends LogContext {
