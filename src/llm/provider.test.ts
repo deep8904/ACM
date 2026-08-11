@@ -5,6 +5,7 @@ import {
   createConfiguredLlmProvider,
   GeminiLLMProvider,
   LlmProviderConfigurationError,
+  resolveGeminiModel,
 } from "./provider";
 
 describe("GeminiLLMProvider", () => {
@@ -80,6 +81,13 @@ describe("GeminiLLMProvider", () => {
     expect(provider.model).toBe("gemini-3.6-flash");
     expect(geminiUrl(provider.model)).toBe(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=test-key",
+    );
+  });
+
+  it("migrates an explicitly pinned legacy Flash model", () => {
+    expect(resolveGeminiModel("gemini-2.5-flash")).toBe("gemini-3.6-flash");
+    expect(resolveGeminiModel("models/gemini-2.5-flash")).toBe(
+      "gemini-3.6-flash",
     );
   });
 
