@@ -216,6 +216,13 @@ class MemoryRepository implements ResearchRemediationRepository {
       ? this.value
       : undefined;
   }
+  async getForJobActor(jobId: string, chatId: string, userId: string) {
+    return this.value?.jobId === jobId &&
+      this.value.chatId === chatId &&
+      this.value.userId === userId
+      ? this.value
+      : undefined;
+  }
   async save(value: ResearchRemediation, expectedVersion?: number) {
     if (
       expectedVersion !== undefined &&

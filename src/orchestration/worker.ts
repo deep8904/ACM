@@ -102,6 +102,7 @@ export class AutomationWorker {
       this.composition.sql,
       this.jobs,
     );
+    const notifiedResearchBlocks = await this.notifyExistingResearchBlocks();
     await this.jobs.heartbeatComponent({
       component: "scheduler",
       instanceId: this.environment.GITHUB_RUN_ID
@@ -115,6 +116,7 @@ export class AutomationWorker {
             : "worker_command",
         event: this.environment.GITHUB_EVENT_NAME ?? "local",
         reconciled: result.enqueued.length,
+        notifiedResearchBlocks,
       },
       observedAt: new Date().toISOString(),
     });
@@ -625,41 +627,7 @@ export class AutomationWorker {
       this.composition.sql
     ) {
       try {
-        const config = await loadResearchConfig(
-          this.environment.RESEARCH_CONFIG ??
-            "automation/config/research.example.yaml",
-        );
-        const repository = new PostgresResearchRemediationRepository(
-          this.composition.sql,
-        );
-        const research = new ResearchService({
-          events: this.composition.research.events,
-          jobs: this.composition.research.jobs,
-          packets: this.composition.research.packets,
-          sources: this.composition.research.sources,
-          cache: this.composition.research.cache,
-          extensions: this.composition.research.extensions,
-          catalog: this.composition.catalog,
-          config,
-        });
-        const controller = new ResearchRemediationTelegramController({
-          service: new ResearchRemediationService({
-            remediation: repository,
-            research,
-            packets: this.composition.research.packets,
-            events: this.composition.research.events,
-            topics: this.composition.telegram,
-            jobs: this.jobs,
-            ttlMinutes: this.telegramConfig.TELEGRAM_CONVERSATION_TTL_MINUTES,
-          }),
-          repository,
-          adapter: this.telegram,
-          callbackSecret: this.telegramConfig.callbackSecret,
-          cancelTopic: async () => {
-            throw new Error("Cancellation is available through the webhook");
-          },
-          refreshTopics: async () => undefined,
-        });
+        const { controller } = await this.remediationController();
         for (const [
           index,
           chatId,
@@ -690,6 +658,81 @@ export class AutomationWorker {
           `<b>${escape(job.type)} failed</b>\n${escape(safe)}\nReference: ${escape(diagnosticId)}\n${escape(operatorAction ?? `Use /retry ${job.id} after correcting readiness, or /system_status.`)}`,
         )
         .catch(() => undefined);
+  }
+
+  private async notifyExistingResearchBlocks() {
+    if (!this.composition.sql) return 0;
+    const blocked = (await this.jobs.list(["blocked"], 100)).filter(
+      (job) =>
+        job.type === "research" &&
+        (/primary source/i.test(job.failureSummary ?? "") ||
+          typeof job.payload.remediationId === "string"),
+    );
+    if (!blocked.length) return 0;
+    const { controller, repository } = await this.remediationController();
+    let sent = 0;
+    for (const job of blocked)
+      for (const [
+        index,
+        chatId,
+      ] of this.telegramConfig.TELEGRAM_ALLOWED_CHAT_IDS.entries()) {
+        const userId =
+          this.telegramConfig.TELEGRAM_ALLOWED_USER_IDS[index] ??
+          this.telegramConfig.TELEGRAM_ALLOWED_USER_IDS[0];
+        if (
+          !userId ||
+          (await repository.getForJobActor(job.id, chatId, userId))
+        )
+          continue;
+        await controller.notifyBlocked(
+          job,
+          { chatId, userId, chatType: "private" },
+          job.failureSummary,
+        );
+        sent += 1;
+      }
+    return sent;
+  }
+
+  private async remediationController() {
+    if (!this.composition.sql)
+      throw new Error("Research remediation requires PostgreSQL storage");
+    const config = await loadResearchConfig(
+      this.environment.RESEARCH_CONFIG ??
+        "automation/config/research.example.yaml",
+    );
+    const repository = new PostgresResearchRemediationRepository(
+      this.composition.sql,
+    );
+    const research = new ResearchService({
+      events: this.composition.research.events,
+      jobs: this.composition.research.jobs,
+      packets: this.composition.research.packets,
+      sources: this.composition.research.sources,
+      cache: this.composition.research.cache,
+      extensions: this.composition.research.extensions,
+      catalog: this.composition.catalog,
+      config,
+    });
+    const controller = new ResearchRemediationTelegramController({
+      service: new ResearchRemediationService({
+        remediation: repository,
+        research,
+        packets: this.composition.research.packets,
+        events: this.composition.research.events,
+        topics: this.composition.telegram,
+        jobs: this.jobs,
+        ttlMinutes: this.telegramConfig.TELEGRAM_CONVERSATION_TTL_MINUTES,
+      }),
+      repository,
+      adapter: this.telegram,
+      callbackSecret: this.telegramConfig.callbackSecret,
+      cancelTopic: async () => {
+        throw new Error("Cancellation is available through the webhook");
+      },
+      refreshTopics: async () => undefined,
+    });
+    return { controller, repository };
   }
 }
 
