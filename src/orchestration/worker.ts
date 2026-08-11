@@ -151,6 +151,7 @@ export class AutomationWorker {
           job,
           failed.diagnosticId ?? "unknown",
           classification.summary,
+          classification.operatorAction,
         );
       } finally {
         clearInterval(timer);
@@ -294,6 +295,9 @@ export class AutomationWorker {
     if (packet.status !== "ready" || !packet.sufficient)
       throw new BlockedAutomationError(
         `Research blocked: ${packet.blockingReasons.join("; ") || "evidence threshold was not met"}`,
+        packet.blockingReasons.some((reason) => /primary source/i.test(reason))
+          ? "Do not retry unchanged. In Telegram, run /topics and approve a different topic whose source preview includes a primary source."
+          : "Do not retry unchanged. Add the missing evidence or choose a different topic.",
       );
     return {
       topicId: packet.topicId,
@@ -606,6 +610,7 @@ export class AutomationWorker {
     job: AutomationJob,
     diagnosticId: string,
     summary: string,
+    operatorAction?: string,
   ) {
     const safe = summary
       .replace(/https?:\/\/[^\s]+/g, "[redacted URL]")
@@ -614,7 +619,7 @@ export class AutomationWorker {
       await this.telegram
         .sendStatusMessage(
           chatId,
-          `<b>${escape(job.type)} failed</b>\n${escape(safe)}\nReference: ${escape(diagnosticId)}\nUse /retry ${job.id} after correcting readiness, or /system_status.`,
+          `<b>${escape(job.type)} failed</b>\n${escape(safe)}\nReference: ${escape(diagnosticId)}\n${escape(operatorAction ?? `Use /retry ${job.id} after correcting readiness, or /system_status.`)}`,
         )
         .catch(() => undefined);
   }
@@ -634,7 +639,15 @@ export async function runAutomationWorker(
   }
 }
 
-class BlockedAutomationError extends Error {}
+class BlockedAutomationError extends Error {
+  constructor(
+    message: string,
+    readonly operatorAction?: string,
+  ) {
+    super(message);
+    this.name = "BlockedAutomationError";
+  }
+}
 
 function classify(error: unknown) {
   const summary =
@@ -662,6 +675,13 @@ function classify(error: unknown) {
     summary,
     retryable: !blocked && !nonRetryable,
     blocked,
+    operatorAction:
+      error instanceof BlockedAutomationError
+        ? error.operatorAction
+        : error instanceof DurableApprovedEventError ||
+            error instanceof InvalidResearchHandoffError
+          ? "No retry is needed. This malformed historical lineage is blocked and retained for audit."
+          : undefined,
   };
 }
 

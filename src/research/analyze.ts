@@ -80,7 +80,10 @@ export function analyze(
           .filter((x) => !claim.sourceIds.includes(x));
         claim.confidence = Math.max(0, claim.confidence - 0.25);
       }
-  const primary = sources.filter((x) => x.isPrimary).length;
+  const primaryCandidates = sources.filter((x) => x.isPrimary);
+  const primary = primaryCandidates.filter(
+    (x) => x.extractionStatus === "extracted",
+  ).length;
   const groups = new Set(sources.map(publisherOwnershipGroup)).size;
   const extracted = sources.filter(
     (x) => x.extractionStatus === "extracted",
@@ -129,7 +132,13 @@ export function analyze(
       ],
     }),
     blockingReasons: [
-      ...(!primary ? ["No primary source was retrieved"] : []),
+      ...(!primary
+        ? [
+            primaryCandidates.length
+              ? "No primary source could be retrieved"
+              : "No primary source was provided",
+          ]
+        : []),
       ...(claims.length === 0
         ? ["No supported factual claims were extracted"]
         : []),
