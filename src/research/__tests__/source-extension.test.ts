@@ -49,7 +49,7 @@ const queue = {
     kind: "ranked",
     candidate: { title: "Copilot usage metrics" },
   },
-} as never;
+};
 
 describe("research source extension", () => {
   it("inspects an official owner without silently adding or escalating it", async () => {
@@ -63,6 +63,25 @@ describe("research source extension", () => {
     expect(proposal.sourceType).toBe("documentation");
     expect((await fixture.packets.get(topicId))?.version).toBe(1);
     expect(await fixture.sources.list(topicId)).toHaveLength(0);
+  });
+
+  it("keeps an awaiting-source topic active for inspection and explicit extension", async () => {
+    const fixture = await createFixture(
+      undefined,
+      true,
+      undefined,
+      "awaiting_source",
+    );
+
+    const proposal = await fixture.service.inspectSource({
+      topicId,
+      url: fieldReference().url,
+    });
+    expect(proposal.proposedAuthority).toBe("primary");
+    expect((await fixture.packets.get(topicId))?.version).toBe(1);
+
+    const extended = await fixture.service.extendSource(fieldReference());
+    expect(extended.version).toBe(2);
   });
 
   it("keeps unknown ownership independent and rejects unsafe or duplicate URLs", async () => {
@@ -217,9 +236,9 @@ describe("research source extension", () => {
 
     const fixture = await createFixture();
     const extended = await fixture.service.extendSource(fieldReference());
-    expect(() => assertWritingEligibility(extended, event, queue)).toThrow(
-      /awaiting_assisted_synthesis|insufficient/,
-    );
+    expect(() =>
+      assertWritingEligibility(extended, event, queue as never),
+    ).toThrow(/awaiting_assisted_synthesis|insufficient/);
   });
 });
 
@@ -227,6 +246,8 @@ async function createFixture(
   extensionOverride?: ResearchSourceExtensionRepository,
   consumed = true,
   fetchOverride?: ResearchFetch,
+  queueResearchReadiness:
+    "ready_for_research" | "awaiting_source" = "ready_for_research",
 ) {
   const root = await mkdtemp(join(tmpdir(), "source-extension-"));
   const packets = new FileResearchPacketRepository(root);
@@ -236,7 +257,11 @@ async function createFixture(
   const events: ApprovedEventRepository = {
     next: async () => undefined,
     get: async (id) => (id === event.id ? event : undefined),
-    queue: async () => queue,
+    queue: async () =>
+      ({
+        ...queue,
+        researchReadiness: queueResearchReadiness,
+      }) as never,
     isCancelled: async () => false,
     isConsumed: async () => consumed,
     consume: async () => {
