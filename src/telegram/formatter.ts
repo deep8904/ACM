@@ -159,7 +159,8 @@ export const helpText = `<b>AI Content Machine — topic approval</b>
 /queue [all] — inspect topic state
 /status &lt;topic_id&gt; — inspect one topic
 /cancel [topic_id] — cancel pending input or an approved unpublished topic
-/jobs — queued, running, failed, and blocked automation jobs
+/jobs — actionable automation cards with recovery buttons
+/jobs all — recent automation history and diagnostics
 /retry &lt;automationjob_id&gt; — safely retry a failed or blocked job
 /cancel_job &lt;automationjob_id&gt; — safely cancel queued work
 /add_source &lt;topic_id&gt; — recover blocked research with a public source URL

@@ -9,17 +9,28 @@ import { PostgresAutomationJobRepository } from "./repository";
 
 const commands = new Set(["/system_status", "/jobs", "/retry", "/cancel_job"]);
 
+interface ResearchRecoveryJobs {
+  showActionableJobs(actor: TelegramActor): Promise<void>;
+}
+
+type OperationsJobs = Pick<
+  PostgresAutomationJobRepository,
+  "list" | "retry" | "cancel"
+>;
+
 export class OperationsTelegramController implements FinalReviewControl {
-  private readonly jobs: PostgresAutomationJobRepository;
+  private readonly jobs: OperationsJobs;
 
   constructor(
     private readonly deps: {
       sql: DatabaseClient;
       adapter: EditorialNotificationAdapter;
       environment?: NodeJS.ProcessEnv;
+      jobs?: OperationsJobs;
+      researchRecovery?: ResearchRecoveryJobs;
     },
   ) {
-    this.jobs = new PostgresAutomationJobRepository(deps.sql);
+    this.jobs = deps.jobs ?? new PostgresAutomationJobRepository(deps.sql);
   }
 
   handlesCommand(command: string | undefined) {
@@ -47,10 +58,23 @@ export class OperationsTelegramController implements FinalReviewControl {
       return;
     }
     if (command === "/jobs") {
-      const values = await this.jobs.list(
-        ["queued", "running", "retryable", "blocked", "failed"],
-        15,
-      );
+      const mode = rest.trim().toLowerCase();
+      if (!mode) {
+        if (this.deps.researchRecovery)
+          await this.deps.researchRecovery.showActionableJobs(actor);
+        else
+          await this.deps.adapter.sendStatusMessage(
+            actor.chatId,
+            "<b>No actionable automation jobs</b>\nUse /jobs all to view automation history.",
+          );
+        return;
+      }
+      if (mode !== "all")
+        throw new TelegramControlError(
+          "invalid_command",
+          "Usage: /jobs or /jobs all",
+        );
+      const values = await this.jobs.list(undefined, 25);
       const text = values.length
         ? values
             .map(
@@ -58,10 +82,10 @@ export class OperationsTelegramController implements FinalReviewControl {
                 `${job.id} · ${job.type} · ${job.status}${job.diagnosticId ? ` · ${job.diagnosticId}` : ""}`,
             )
             .join("\n")
-        : "No queued, running, or blocked automation jobs.";
+        : "No automation history.";
       await this.deps.adapter.sendStatusMessage(
         actor.chatId,
-        `<b>Automation queue</b>\n${text}`,
+        `<b>Automation history</b>\n${text}`,
       );
       return;
     }

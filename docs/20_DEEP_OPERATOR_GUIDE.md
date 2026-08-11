@@ -27,7 +27,8 @@ Topic approval and exact final-article approval are mandatory and cannot be bypa
 - `/drafts` — current final-review states.
 - `/review <topic_id>` — reopen the final article card.
 - `/publications` — recent publication states.
-- `/jobs` — queued, running, retryable, failed, and blocked automation work.
+- `/jobs` — actionable automation cards; blocked research includes `Resume research`.
+- `/jobs all` — recent automation history, job IDs, and diagnostics.
 - `/retry <automationjob_id>` — retry a failed or blocked job from a clean attempt budget.
 - `/cancel_job <automationjob_id>` — cancel work that has not started running.
 - `/system_status` — database, webhook, scheduler, worker, GitHub, Vercel, and AI-provider readiness.
@@ -41,7 +42,7 @@ Failures stop safely. Telegram shows a short reason and diagnostic reference, ne
 - A crashed worker's lease expires and another worker reclaims the same deterministic job.
 - Schema-invalid AI output is rejected and retried; it is never silently accepted.
 - Evidence, quality, snapshot, unexpected-content, canonical, ancestry, content-hash, and deployment mismatches fail closed.
-- After the retry budget, a job becomes `failed` or `blocked`. Correct readiness if needed, then use `/retry <job_id>`.
+- After the retry budget, a job becomes `failed` or `blocked`. Use `/jobs`; recoverable research resumes from its button without a job ID. Use `/jobs all` and `/retry <job_id>` only for explicit diagnostics and non-research operations.
 - Use `/cancel_job` only for queued/blocked work. A running publication cannot be cancelled midway because that could misrepresent repository state.
 
 ## Hosted architecture

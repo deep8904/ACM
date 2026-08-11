@@ -133,6 +133,8 @@ Research blocked
 
 HTTP 429, HTTP 403, robots exclusion, unsafe/private URLs, and duplicates produce concise operator messages with server-side diagnostic references. `/add_source <topicId>` and `/research_source <topicId>` reopen an eligible blocked flow; buttons remain the normal interface. `/queue` and `/status` display `awaiting_source` while the topic is blocked for operator evidence.
 
+`/jobs` is the normal recovery entry point. It derives actionable research from the current approved event, consumed event state, latest insufficient packet, active queue readiness, and a canonical blocked research handoff. Malformed, orphaned, superseded, cancelled, and terminal records are omitted. Each actionable lineage appears once as a compact card with `Resume research`; tapping it immediately acknowledges the callback and atomically rotates the actor-scoped remediation version and expiry before sending a fresh recovery card. Older cards become stale. `/jobs all` is the explicit read-only diagnostic view for recent historical records and job IDs.
+
 ## 10. Milestone 3 implementation boundary
 
 The implemented topic control layer is documented in `docs/12_TELEGRAM_TOPIC_APPROVAL.md`. Topic approval persists an unconsumed handoff event only. Research, draft controls, final review cards, final article approval, publishing, and social actions remain deferred and unavailable.
