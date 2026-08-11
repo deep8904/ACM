@@ -6,8 +6,9 @@ import {
 import { it } from "vitest";
 import { EXPECTED_DATABASE_SCHEMA, type DatabaseConfig } from "../config";
 import { migrateDatabase } from "../migrations";
+import { safeTestDatabaseUrl } from "../test-database-safety";
 
-export const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+export const testDatabaseUrl = safeTestDatabaseUrl(process.env);
 export const postgresTest = testDatabaseUrl ? it : it.skip;
 
 export async function testClient(): Promise<DatabaseClient> {

@@ -3,7 +3,6 @@ import { withTransaction } from "../database/client";
 import { sha256, stableId } from "../database/hash";
 import { toJsonValue } from "../database/json";
 import {
-  topicApprovedEventSchema,
   topicQueueItemSchema,
   type TopicApprovedEvent,
 } from "../telegram/models";
@@ -25,8 +24,14 @@ import {
   type ResearchPacket,
   type ResearchSource,
 } from "./models";
+import { parseDurableApprovedEvent } from "./approved-event";
 
 type PayloadRow = { payload: unknown };
+type ApprovedEventRow = {
+  id: string;
+  topic_id: string;
+  payload: unknown;
+};
 
 export class PostgresResearchJobRepository implements ResearchJobRepository {
   constructor(private sql: DatabaseClient) {}
@@ -358,23 +363,31 @@ async function reconcileEventConsumption(
 export class PostgresApprovedEventRepository implements ApprovedEventRepository {
   constructor(private sql: DatabaseClient) {}
   async next() {
-    const rows = await this.sql<PayloadRow[]>`
-      select e.payload from content_machine.topic_approved_events e
+    const rows = await this.sql<ApprovedEventRow[]>`
+      select e.id,e.topic_id,e.payload from content_machine.topic_approved_events e
       join content_machine.topic_event_state s on s.event_id=e.id
       join content_machine.topic_queue_items q on q.topic_id=e.topic_id
       where s.consumed_at is null and e.status='ready' and q.approval_status='approved'
       order by e.approved_at,e.id limit 1
     `;
     return rows[0]
-      ? topicApprovedEventSchema.parse(rows[0].payload)
+      ? parseDurableApprovedEvent({
+          id: rows[0].id,
+          topicId: rows[0].topic_id,
+          payload: rows[0].payload,
+        })
       : undefined;
   }
   async get(id: string) {
     const rows = await this.sql<
-      PayloadRow[]
-    >`select payload from content_machine.topic_approved_events where id=${id}`;
+      ApprovedEventRow[]
+    >`select id,topic_id,payload from content_machine.topic_approved_events where id=${id}`;
     return rows[0]
-      ? topicApprovedEventSchema.parse(rows[0].payload)
+      ? parseDurableApprovedEvent({
+          id: rows[0].id,
+          topicId: rows[0].topic_id,
+          payload: rows[0].payload,
+        })
       : undefined;
   }
   async queue(topicId: string) {
