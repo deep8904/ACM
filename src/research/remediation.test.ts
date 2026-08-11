@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { TelegramActor } from "../telegram/authorization";
 import { RecordingTelegramAdapter } from "../telegram/recording-adapter";
 import type { TelegramUpdate } from "../telegram/models";
+import { DurableApprovedEventError } from "./approved-event";
 import {
   ResearchRemediationService,
   ResearchRemediationTelegramController,
@@ -503,6 +504,13 @@ function createActionableHarness() {
     lineageKey: orphanEventId,
     payload: { eventId: orphanEventId },
   };
+  const invalidDurableEventId = "event_6296784279ae12c54771daf8";
+  const invalidDurable = {
+    ...current,
+    id: "automationjob_eeeeeeeeeeeeeeeeeeeeeeee",
+    lineageKey: invalidDurableEventId,
+    payload: { eventId: invalidDurableEventId },
+  };
   const olderCanonical = {
     ...current,
     id: "automationjob_dddddddddddddddddddddddd",
@@ -522,7 +530,13 @@ function createActionableHarness() {
     },
   };
   const jobs = {
-    list: vi.fn(async () => [malformed, orphan, current, olderCanonical]),
+    list: vi.fn(async () => [
+      malformed,
+      orphan,
+      invalidDurable,
+      current,
+      olderCanonical,
+    ]),
     get: vi.fn(async (id: string) => (id === current.id ? current : undefined)),
     retry: vi.fn(),
   };
@@ -532,11 +546,15 @@ function createActionableHarness() {
     research: research as never,
     packets: { get: vi.fn(async () => packet) } as never,
     events: {
-      get: vi.fn(async (id: string) =>
-        id === baseState().eventId
+      get: vi.fn(async (id: string) => {
+        if (id === invalidDurableEventId)
+          throw new DurableApprovedEventError(
+            `Invalid durable approved-topic event ${id}`,
+          );
+        return id === baseState().eventId
           ? { id, topicId: baseState().topicId }
-          : undefined,
-      ),
+          : undefined;
+      }),
       queue: vi.fn(async () => queue),
       isConsumed: vi.fn(async () => true),
     } as never,

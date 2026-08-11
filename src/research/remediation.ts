@@ -27,6 +27,7 @@ import {
   InvalidResearchHandoffError,
   loadResearchHandoff,
 } from "../orchestration/research-handoff";
+import { DurableApprovedEventError } from "./approved-event";
 
 export interface ActionableResearchRecovery {
   job: AutomationJob;
@@ -428,7 +429,11 @@ export class ResearchRemediationService {
     try {
       event = await loadResearchHandoff(job, this.deps.events);
     } catch (error) {
-      if (error instanceof InvalidResearchHandoffError) return;
+      if (
+        error instanceof InvalidResearchHandoffError ||
+        error instanceof DurableApprovedEventError
+      )
+        return;
       throw error;
     }
     const packet = await this.deps.packets.get(event.topicId);
