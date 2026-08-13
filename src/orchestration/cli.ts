@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 
+import { log } from "../lib/logger";
 import { createRepositoryComposition } from "../storage/composition";
 import { productionReadiness } from "./readiness";
 import { manualDiscoveryJob, reconcileAutomationQueue } from "./reconcile";
@@ -27,19 +28,7 @@ export async function main(args: string[]) {
         ),
       );
     else if (command === "manual-discovery")
-      console.log(
-        JSON.stringify(
-          await jobs.enqueue(
-            manualDiscoveryJob({
-              testId: requiredEnvironment("MANUAL_DISCOVERY_TEST_ID"),
-              windowStart: requiredEnvironment("MANUAL_DISCOVERY_WINDOW_START"),
-              windowEnd: requiredEnvironment("MANUAL_DISCOVERY_WINDOW_END"),
-            }),
-          ),
-          null,
-          2,
-        ),
-      );
+      console.log(JSON.stringify(await enqueueManualDiscovery(jobs), null, 2));
     else if (command === "status")
       console.log(JSON.stringify(await jobs.list(undefined, 50), null, 2));
     else if (command === "retry")
@@ -74,6 +63,36 @@ export async function main(args: string[]) {
     } else throw new Error(`Unknown automation command: ${command}`);
   } finally {
     await composition.close();
+  }
+}
+
+async function enqueueManualDiscovery(jobs: PostgresAutomationJobRepository) {
+  const input = manualDiscoveryJob({
+    testId: requiredEnvironment("MANUAL_DISCOVERY_TEST_ID"),
+    windowStart: requiredEnvironment("MANUAL_DISCOVERY_WINDOW_START"),
+    windowEnd: requiredEnvironment("MANUAL_DISCOVERY_WINDOW_END"),
+  });
+  const runId = String(input.payload?.runId);
+  const context = {
+    runId,
+    stage: "manual_discovery_enqueue",
+    topicId: null,
+    articleId: null,
+  } as const;
+  log("info", "manual_discovery_enqueue_started", context);
+  try {
+    const job = await jobs.enqueue(input);
+    log("info", "manual_discovery_enqueue_succeeded", {
+      ...context,
+      result: job.id,
+    });
+    return job;
+  } catch (error) {
+    log("error", "manual_discovery_enqueue_failed", {
+      ...context,
+      failureSummary: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
 }
 
