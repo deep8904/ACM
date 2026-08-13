@@ -29,10 +29,15 @@ import {
 import { PostgresHistoryRepository } from "../ranking/postgres-history";
 import { loadRankingConfig } from "../ranking/config";
 import { runRankingPipeline } from "../ranking/service";
-import { importAssistance, writeAssistanceTask } from "../research/assisted";
+import {
+  importAssistance,
+  repairPrimaryBlockingState,
+  writeAssistanceTask,
+} from "../research/assisted";
 import { DurableApprovedEventError } from "../research/approved-event";
 import { loadResearchConfig } from "../research/config";
 import { assistedResearchResultSchema } from "../research/models";
+import { hasVerifiedPrimaryEvidence } from "../research/primary-evidence";
 import { ResearchService } from "../research/service";
 import {
   PostgresResearchRemediationRepository,
@@ -57,6 +62,7 @@ import {
   type RepositoryComposition,
 } from "../storage/composition";
 import { requireTelegramRuntimeConfig } from "../telegram/config";
+import { topicQueueItemSchema } from "../telegram/models";
 import { TopicApprovalService } from "../telegram/service";
 import { TelegramBotApiClient } from "../telegram/telegram-client";
 import { loadWritingConfig } from "../writing/config";
@@ -286,7 +292,13 @@ export class AutomationWorker {
       config,
       workerId: this.workerId,
     });
-    let packet = await service.process(eventId);
+    const repairPrimaryBlock = job.payload.repairPrimaryBlock === true;
+    let packet = repairPrimaryBlock
+      ? await repositories.packets.get(
+          approvedEvent.topicId,
+          numberPayload(job, "packetVersion"),
+        )
+      : await service.process(eventId);
     if (!packet) {
       const event = await repositories.events.get(eventId);
       packet = event
@@ -299,6 +311,8 @@ export class AutomationWorker {
         : undefined;
     }
     if (!packet) throw new Error("Research produced no durable packet");
+    if (repairPrimaryBlock)
+      packet = await repairPrimaryBlockingState(packet, repositories.packets);
     if (packet.status === "awaiting_assisted_synthesis") {
       await writeAssistanceTask(
         packet,
@@ -329,6 +343,21 @@ export class AutomationWorker {
           repositories.imports,
         ),
       );
+    }
+    if (hasVerifiedPrimaryEvidence(packet)) {
+      const queue = await this.composition.telegram.getQueueItem(
+        packet.topicId,
+      );
+      if (queue?.researchReadiness === "awaiting_source")
+        await this.composition.telegram.saveQueueItem(
+          topicQueueItemSchema.parse({
+            ...queue,
+            researchReadiness: "ready_for_research",
+            updatedAt: new Date().toISOString(),
+            version: queue.version + 1,
+          }),
+          queue.version,
+        );
     }
     if (packet.status !== "ready" || !packet.sufficient)
       throw new BlockedAutomationError(

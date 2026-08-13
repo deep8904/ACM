@@ -13,6 +13,7 @@ import {
   researchPacketSchema,
   type ResearchPacket,
 } from "./models";
+import { resolvePrimaryBlockingReasons } from "./primary-evidence";
 
 export async function writeAssistanceTask(
   packet: ResearchPacket,
@@ -201,9 +202,10 @@ export async function importAssistance(
       throw new Error(`Imported claim ${claim.id} has a future timestamp`);
   }
   const version = await packets.nextVersion(base.topicId);
-  const blockingReasons = base.blockingReasons.filter(
-    (x) => !x.startsWith("No supported factual claims"),
-  );
+  const blockingReasons = resolvePrimaryBlockingReasons(
+    base,
+    base.blockingReasons,
+  ).filter((x) => !x.startsWith("No supported factual claims"));
   const components = {
     ...base.researchSufficiency.components,
     claimCoverage: Math.min(
@@ -266,6 +268,47 @@ export async function importAssistance(
   if (imports) return imports.persist(next, now);
   await packets.save(next);
   await events.consume(next.approvedEventId, next.id, next.version, now);
+  return next;
+}
+
+export async function repairPrimaryBlockingState(
+  base: ResearchPacket,
+  packets: ResearchPacketRepository,
+  now = new Date().toISOString(),
+) {
+  const latest = await packets.get(base.topicId);
+  if (
+    latest &&
+    latest.version > base.version &&
+    latest.provenance.sourcePacketVersion === base.version &&
+    resolvePrimaryBlockingReasons(latest, latest.blockingReasons).length ===
+      latest.blockingReasons.length
+  )
+    return latest;
+  const blockingReasons = resolvePrimaryBlockingReasons(
+    base,
+    base.blockingReasons,
+  );
+  if (blockingReasons.length === base.blockingReasons.length) return base;
+  const assistedClaims = [...base.interpretations, ...base.predictions];
+  const sufficient =
+    base.researchSufficiency.score >= base.researchSufficiency.threshold &&
+    blockingReasons.length === 0 &&
+    assistedClaims.length > 0;
+  const next = researchPacketSchema.parse({
+    ...base,
+    version: await packets.nextVersion(base.topicId),
+    updatedAt: now,
+    status: sufficient ? "ready" : "insufficient",
+    sufficient,
+    blockingReasons,
+    provenance: {
+      ...base.provenance,
+      sourcePacketVersion: base.version,
+      importHash: undefined,
+    },
+  });
+  await packets.save(next);
   return next;
 }
 

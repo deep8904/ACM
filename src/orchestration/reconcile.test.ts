@@ -65,6 +65,24 @@ describe("research queue reconciliation", () => {
       continuation.approved_event_id,
     ]);
   });
+
+  it("queues one immutable re-synthesis for a stale primary block", async () => {
+    const repair = {
+      topic_id: "topic_manual_4c603d43de72f01e1821878c",
+      approved_event_id: "event_509d1ba7456cbe4e7d149952",
+      packet_version: 8,
+    };
+    const jobs = fakeJobs();
+    const sql = fakeDatabase([], [], [repair]);
+
+    await reconcileAutomationQueue(sql, jobs, now);
+    await reconcileAutomationQueue(sql, jobs, now);
+
+    expect(jobs.created()).toEqual([
+      "discovery:2026-08-10T16:00:00.000Z",
+      repair.approved_event_id,
+    ]);
+  });
 });
 
 const now = new Date("2026-08-11T09:00:00.000Z");
@@ -174,10 +192,16 @@ function fakeDatabase(
     approved_event_id: string;
     packet_version: number;
   }[] = [],
+  primaryRepairs: {
+    topic_id: string;
+    approved_event_id: string;
+    packet_version: number;
+  }[] = [],
 ) {
   return (async (parts: TemplateStringsArray) => {
     const query = parts.join(" ");
     if (query.includes("awaiting_assisted_synthesis")) return continuations;
+    if (query.includes("humanAssistedEvidence")) return primaryRepairs;
     return query.includes("topic_approved_events") ? rows : [];
   }) as unknown as DatabaseClient;
 }

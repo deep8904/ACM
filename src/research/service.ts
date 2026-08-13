@@ -23,6 +23,7 @@ import {
   type ResearchPacket,
   type ResearchSource,
 } from "./models";
+import { isMissingPrimaryReason } from "./primary-evidence";
 import { z } from "zod";
 import {
   ResearchRetrievalError,
@@ -490,9 +491,8 @@ export class ResearchService {
     });
     const priorBlocking = base.blockingReasons.filter(
       (reason) =>
-        !/^No primary source (?:could be retrieved|was provided)$/i.test(
-          reason,
-        ) && !/^No supported factual claims were extracted$/i.test(reason),
+        !isMissingPrimaryReason(reason) &&
+        !/^No supported factual claims were extracted$/i.test(reason),
     );
     const blockingReasons = uniqueStrings([
       ...priorBlocking,
