@@ -110,6 +110,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:simulation": "vitest run src/discovery/discovery-service.test.ts src/ranking/service.integration.test.ts src/telegram/service.integration.test.ts src/research/__tests__/research.test.ts src/writing/__tests__/writing.test.ts src/review/__tests__/event-flow.integration.test.ts src/publication/__tests__/service.integration.test.ts src/social/__tests__/service.integration.test.ts src/analytics/__tests__/service.integration.test.ts",
+    "test:v1": "vitest run src/orchestration/scheduling-config.test.ts src/discovery/discovery-service.test.ts src/ranking/service.integration.test.ts src/interests/interests.test.ts src/interests/telegram.test.ts src/telegram/service.integration.test.ts src/research/__tests__/research.test.ts src/writing/__tests__/writing.test.ts src/review/__tests__/event-flow.integration.test.ts src/review/__tests__/final-approval.test.ts src/publication/__tests__/service.integration.test.ts",
     "test:postgres": "vitest run --config vitest.postgres.config.ts",
     "test:parity": "vitest run --config vitest.postgres.config.ts src/database/__tests__/parity.postgres.test.ts",
     "test:concurrency": "vitest run --config vitest.postgres.config.ts src/database/__tests__/concurrency.postgres.test.ts",

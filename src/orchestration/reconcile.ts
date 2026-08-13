@@ -8,6 +8,7 @@ import {
 import type { EnqueueAutomationJob } from "./models";
 import { researchAutomationInput } from "./research-handoff";
 import { PostgresAutomationJobRepository } from "./repository";
+import { discoveryScheduleStatus } from "./discovery-schedule";
 
 type AutomationEnqueuer = Pick<PostgresAutomationJobRepository, "enqueue">;
 
@@ -18,7 +19,8 @@ export async function reconcileAutomationQueue(
 ) {
   const enqueued: string[] = [];
   const invalidApprovedEvents: string[] = [];
-  enqueued.push((await jobs.enqueue(scheduledDiscoveryJob(now))).id);
+  const discovery = await discoveryScheduleStatus(sql, now);
+  enqueued.push((await jobs.enqueue(scheduledDiscoveryJob(now, discovery))).id);
 
   const topicEvents = await sql<ApprovedResearchLineageRow[]>`
     select e.id as event_id,e.topic_id as event_topic_id,e.approval_id as event_approval_id,
@@ -46,6 +48,43 @@ export async function reconcileAutomationQueue(
       continue;
     }
     enqueued.push((await jobs.enqueue(researchAutomationInput(event))).id);
+  }
+
+  const continuations = await sql<
+    { topic_id: string; approved_event_id: string; packet_version: number }[]
+  >`
+    select p.topic_id,p.approved_event_id,p.packet_version
+    from content_machine.research_packets p
+    where p.payload->>'status'='awaiting_assisted_synthesis'
+      and p.packet_version=(
+        select max(p2.packet_version) from content_machine.research_packets p2
+        where p2.topic_id=p.topic_id
+      )
+      and not exists (
+        select 1 from content_machine.automation_jobs j
+        where j.job_type='research' and j.topic_id=p.topic_id
+          and j.payload->>'packetVersion'=p.packet_version::text
+          and j.status in ('queued','running','retryable','succeeded')
+      )
+  `;
+  for (const packet of continuations) {
+    enqueued.push(
+      (
+        await jobs.enqueue({
+          type: "research",
+          idempotencyKey: hash(
+            `research-continuation:${packet.approved_event_id}:${packet.packet_version}`,
+          ),
+          lineageKey: packet.approved_event_id,
+          topicId: packet.topic_id,
+          payload: {
+            eventId: packet.approved_event_id,
+            packetVersion: packet.packet_version,
+            continuation: true,
+          },
+        })
+      ).id,
+    );
   }
 
   const packets = await sql<{ topic_id: string; packet_version: number }[]>`
@@ -149,15 +188,28 @@ export async function reconcileAutomationQueue(
   };
 }
 
-export function scheduledDiscoveryJob(now: Date): EnqueueAutomationJob {
-  const day = now.toISOString().slice(0, 10);
+export function scheduledDiscoveryJob(
+  now: Date,
+  schedule: {
+    currentWindowStart: string;
+    currentWindowEnd: string;
+  } = {
+    currentWindowStart: new Date(
+      now.getTime() - 7 * 24 * 60 * 60_000,
+    ).toISOString(),
+    currentWindowEnd: now.toISOString(),
+  },
+): EnqueueAutomationJob {
+  const slot = schedule.currentWindowEnd.slice(0, 13).replaceAll(/[-T:]/g, "");
   return {
     type: "discovery",
-    idempotencyKey: hash(`discovery:${day}`),
-    lineageKey: `discovery:${day}`,
+    idempotencyKey: hash(`discovery:${schedule.currentWindowEnd}`),
+    lineageKey: `discovery:${schedule.currentWindowEnd}`,
     payload: {
-      runId: `run_${day.replaceAll("-", "")}_scheduled`,
+      runId: `run_${slot}_scheduled`,
       scheduled: true,
+      windowStart: schedule.currentWindowStart,
+      windowEnd: schedule.currentWindowEnd,
     },
   };
 }

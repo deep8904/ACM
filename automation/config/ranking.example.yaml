@@ -164,5 +164,9 @@ relevanceWeights:
 
 publisherGroups:
   openai-news: openai
+  figma-release-notes: figma
+  unity-lts-releases: unity
+  nintendo-news: nintendo
+  verge-technology: the-verge
   openai-changelog: openai
   fixture-hacker-news: hacker-news

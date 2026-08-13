@@ -16,6 +16,7 @@ export interface AdapterContext {
   runId: string;
   retrievedAt: string;
   lookbackSince?: string;
+  windowUntil?: string;
   maxItems?: number;
   fetch: FetchImplementation;
   sleep?: (milliseconds: number) => Promise<void>;

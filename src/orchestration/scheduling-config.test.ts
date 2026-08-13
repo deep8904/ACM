@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { evaluateAutomationHeartbeats } from "./readiness";
 import { scheduledDiscoveryJob } from "./reconcile";
+import { currentDiscoverySlot, nextDiscoverySlot } from "./discovery-schedule";
 import type { SystemHeartbeat } from "./models";
 
 const root = process.cwd();
@@ -63,19 +64,34 @@ describe("free hosted scheduler configuration", () => {
     );
   });
 
-  it("creates one deterministic discovery identity per UTC day", () => {
-    const morning = scheduledDiscoveryJob(new Date("2026-08-09T00:01:00.000Z"));
-    const evening = scheduledDiscoveryJob(new Date("2026-08-09T23:59:00.000Z"));
-    const nextDay = scheduledDiscoveryJob(new Date("2026-08-10T00:00:00.000Z"));
+  it("creates exactly two deterministic discovery slots per UTC week", () => {
+    const monday = new Date("2026-08-10T16:00:00.000Z");
+    const thursday = new Date("2026-08-13T16:00:00.000Z");
+    expect(currentDiscoverySlot(new Date("2026-08-10T16:01:00.000Z"))).toEqual(
+      monday,
+    );
+    expect(currentDiscoverySlot(new Date("2026-08-12T23:59:00.000Z"))).toEqual(
+      monday,
+    );
+    expect(currentDiscoverySlot(new Date("2026-08-13T16:01:00.000Z"))).toEqual(
+      thursday,
+    );
+    expect(nextDiscoverySlot(new Date("2026-08-10T16:01:00.000Z"))).toEqual(
+      thursday,
+    );
 
-    expect(morning).toEqual(evening);
-    expect(morning.idempotencyKey).not.toBe(nextDay.idempotencyKey);
-    expect(morning).toMatchObject({
+    const job = scheduledDiscoveryJob(new Date("2026-08-13T16:01:00.000Z"), {
+      currentWindowStart: "2026-08-10T16:03:00.000Z",
+      currentWindowEnd: thursday.toISOString(),
+    });
+    expect(job).toMatchObject({
       type: "discovery",
-      lineageKey: "discovery:2026-08-09",
+      lineageKey: "discovery:2026-08-13T16:00:00.000Z",
       payload: {
-        runId: "run_20260809_scheduled",
+        runId: "run_2026081316_scheduled",
         scheduled: true,
+        windowStart: "2026-08-10T16:03:00.000Z",
+        windowEnd: "2026-08-13T16:00:00.000Z",
       },
     });
   });

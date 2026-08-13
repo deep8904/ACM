@@ -67,7 +67,14 @@ export class FeedAdapter implements TrendSourceAdapter {
         if (
           context.lookbackSince &&
           item.publishedAt &&
-          item.publishedAt < context.lookbackSince
+          item.publishedAt <= context.lookbackSince
+        ) {
+          continue;
+        }
+        if (
+          context.windowUntil &&
+          item.publishedAt &&
+          item.publishedAt > context.windowUntil
         ) {
           continue;
         }

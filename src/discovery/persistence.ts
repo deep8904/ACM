@@ -23,6 +23,8 @@ export interface DiscoveryReport {
   stage: "DISCOVERING";
   startedAt: string;
   completedAt: string;
+  windowStart?: string;
+  windowEnd?: string;
   sourceReports: SourceRunReport[];
   deduplication: DeduplicationReport;
 }
@@ -49,6 +51,8 @@ export const discoveryReportSchema = z.object({
   stage: z.literal("DISCOVERING"),
   startedAt: z.string().datetime({ offset: true }),
   completedAt: z.string().datetime({ offset: true }),
+  windowStart: z.string().datetime({ offset: true }).optional(),
+  windowEnd: z.string().datetime({ offset: true }).optional(),
   sourceReports: z.array(
     z.object({
       sourceId: z.string(),

@@ -8,6 +8,11 @@ No terminal is needed.
 /skip_cycle             skip all pending topics
 /add <topic>            custom topic
 /link <https://…>       custom source URL
+/interests              view and manage editorial interests
+/interest_add Name | keyword one, keyword two
+/interest_enable <id>   enable a saved interest
+/interest_disable <id>  disable without deleting history
+/interest_remove <id>   remove from normal lists; preserve audit
 /queue                  topic states
 /drafts                 final article-review states
 /review <topic_id>      reopen final review
@@ -16,8 +21,10 @@ No terminal is needed.
 /jobs all               recent history and diagnostics
 /retry <job_id>         retry failed/blocked work
 /cancel_job <job_id>    cancel queued work
-/system_status          production readiness
+/system_status          readiness plus discovery window/timing
 /help                   all commands
 ```
 
 Normal successful path: approve one topic, wait for the final article card, then approve the exact article. Everything between and after those gates is automatic.
+
+Discovery occurs Monday and Thursday at 16:00 UTC. The worker continues approved work every 15 minutes, but it cannot create additional scheduled discovery runs.

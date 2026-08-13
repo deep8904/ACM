@@ -4,7 +4,7 @@ AI Content Machine is a trend-first, human-approved publishing system for Deep's
 
 ## V1 production operation
 
-Daily operation is Telegram-only after the one-time hosted setup. Vercel hosts the permanent webhook, health check, and signed previews; GitHub Actions runs durable lease-based jobs; private state remains in Supabase/Postgres; and exact final approval automatically publishes to `deep8904/Deep-Blog` and verifies its Vercel production deployment. See [`docs/20_DEEP_OPERATOR_GUIDE.md`](docs/20_DEEP_OPERATOR_GUIDE.md).
+Normal operation is Telegram-only after the one-time hosted setup. Discovery runs exactly twice per week; the hosted worker may wake every 15 minutes to reconcile durable work without creating extra discovery runs. Vercel hosts the permanent webhook, health check, and signed previews; GitHub Actions runs durable lease-based jobs; private state remains in Supabase/Postgres; and exact final approval automatically publishes to `deep8904/Deep-Blog` and verifies its Vercel production deployment. See [`docs/20_DEEP_OPERATOR_GUIDE.md`](docs/20_DEEP_OPERATOR_GUIDE.md).
 
 Social distribution remains a separate later phase and is not part of the V1 automatic blog-publication path.
 
@@ -16,7 +16,7 @@ The project is intentionally designed around three constraints:
 
 ## Core publishing model
 
-The system does not assign fixed content categories to fixed weekdays. It searches current signals across software, AI, computing, hardware, design, gaming, and game development, then recommends the strongest opportunities available at that moment.
+The system does not assign fixed content categories to fixed weekdays. It searches current signals across the four configurable editorial interests—new/computer/design technology, product reviews/hardware, gaming/game design/game engines, and software/AI—then recommends the strongest opportunities available at that moment. Interests can be viewed and changed from Telegram without editing code.
 
 A typical run is:
 

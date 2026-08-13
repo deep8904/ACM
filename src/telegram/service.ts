@@ -54,6 +54,7 @@ export interface TopicApprovalServiceOptions {
   analytics?: FinalReviewControl;
   operations?: FinalReviewControl;
   researchRemediation?: FinalReviewControl;
+  interests?: FinalReviewControl;
 }
 
 export interface FinalReviewControl {
@@ -206,6 +207,15 @@ export class TopicApprovalService {
     update: TelegramUpdate,
     actor: TelegramActor,
   ): Promise<void> {
+    if (this.options.interests?.handlesCommand(command)) {
+      await this.options.interests.processCommand(
+        command as string,
+        rest,
+        update,
+        actor,
+      );
+      return;
+    }
     if (this.options.researchRemediation?.handlesCommand(command)) {
       await this.options.researchRemediation.processCommand(
         command as string,
@@ -471,6 +481,15 @@ export class TopicApprovalService {
           "Analytics review is not configured",
         );
       await this.options.analytics.processCallback(update, actor);
+      return;
+    }
+    if (callback.data.startsWith("p:")) {
+      if (!this.options.interests)
+        throw new TelegramControlError(
+          "stale_callback",
+          "Editorial interests are not configured",
+        );
+      await this.options.interests.processCallback(update, actor);
       return;
     }
     if (callback.data.startsWith("a:")) {
