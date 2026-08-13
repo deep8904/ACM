@@ -447,7 +447,7 @@ export class AutomationWorker {
       jobId: job.id,
       stage: "editorial_review",
       system:
-        "Perform a rigorous evidence-bound editorial review. Deterministic blockers are authoritative. Every issue ID must be deterministic-looking and all referenced source/claim IDs must already exist.",
+        "Perform a rigorous evidence-bound editorial review. Deterministic blockers are authoritative. Every issue ID must be deterministic-looking and all referenced source/claim IDs must already exist. For each issue, either leave section null or copy it exactly from allowedArticleSections.",
       task: withSchema(task, editorialReviewImportSchema, {
         requiredIdentity: {
           id: `review_${sha256(`${(task as { draftId?: string })?.draftId}:${draftVersion}`).slice(0, 24)}`,
