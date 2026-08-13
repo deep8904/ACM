@@ -302,7 +302,7 @@ function selectionReasons(
   return unique([
     ...(breakdown.freshness >= 14 ? ["fresh signal"] : []),
     ...(cluster.primarySourceItemIds.length > 0
-      ? ["primary source present"]
+      ? ["primary source identified; retrieval pending"]
       : []),
     ...(cluster.independentSourceCount >= 2
       ? ["independent confirmation"]

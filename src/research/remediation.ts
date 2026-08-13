@@ -34,6 +34,7 @@ import {
 } from "../orchestration/research-handoff";
 import { DurableApprovedEventError } from "./approved-event";
 import { hasVerifiedPrimaryEvidence } from "./primary-evidence";
+import type { ResearchSource } from "./models";
 
 export interface ActionableResearchRecovery {
   job: AutomationJob;
@@ -153,6 +154,12 @@ export interface ResearchRemediationRepository {
     dedupeKey: string;
     details?: Record<string, unknown>;
   }): Promise<void>;
+  claimNotification?(input: {
+    remediationId: string;
+    topicId: string;
+    jobId: string;
+    dedupeKey: string;
+  }): Promise<boolean>;
 }
 
 export class PostgresResearchRemediationRepository implements ResearchRemediationRepository {
@@ -226,6 +233,22 @@ export class PostgresResearchRemediationRepository implements ResearchRemediatio
     await this.writeAudit(this.sql, input);
   }
 
+  async claimNotification(input: {
+    remediationId: string;
+    topicId: string;
+    jobId: string;
+    dedupeKey: string;
+  }) {
+    const id = `remediationevent_${hash(`${input.remediationId}:operator_notification:${input.dedupeKey}`).slice(0, 24)}`;
+    const rows = await this.sql<{ id: string }[]>`
+      insert into content_machine.research_remediation_events
+        (id,remediation_id,topic_id,job_id,action,payload)
+      values (${id},${input.remediationId},${input.topicId},${input.jobId},'operator_notification',${this.sql.json({})})
+      on conflict(id) do nothing returning id
+    `;
+    return Boolean(rows[0]);
+  }
+
   async cancelInteraction(
     value: ResearchRemediation,
     expectedVersion: number,
@@ -296,6 +319,12 @@ export class ResearchRemediationService {
       actor.chatId,
       actor.userId,
     );
+    const knownPrimary = (packet.sourceIndex ?? []).find(
+      (source) => source.isPrimary && source.extractionStatus !== "extracted",
+    );
+    const knownFailure = knownPrimary
+      ? retrievalFailureFromSource(knownPrimary)
+      : undefined;
     const value = researchRemediationSchema.parse({
       id: `remediation_${identity.slice(0, 24)}`,
       shortId: identity.slice(0, 12),
@@ -311,14 +340,17 @@ export class ResearchRemediationService {
       ),
       pendingUrl:
         packet.provenance?.humanAssistedEvidence?.canonicalUrl ??
+        knownPrimary?.canonicalUrl ??
         (existing?.jobId === job.id ? existing.pendingUrl : undefined),
       retrievalFailure: packet.provenance?.humanAssistedEvidence
         ? {
             ...packet.provenance.humanAssistedEvidence.originalRetrievalFailure,
           }
-        : existing?.jobId === job.id
-          ? existing.retrievalFailure
-          : undefined,
+        : knownFailure
+          ? knownFailure
+          : existing?.jobId === job.id
+            ? existing.retrievalFailure
+            : undefined,
       createdAt:
         existing?.id === `remediation_${identity.slice(0, 24)}`
           ? existing.createdAt
@@ -876,7 +908,34 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
     actor: TelegramActor,
     reason?: string,
   ) {
+    const existing = await this.deps.repository.getForJobActor(
+      job.id,
+      actor.chatId,
+      actor.userId,
+    );
+    if (
+      existing &&
+      this.deps.repository.claimNotification &&
+      !(await this.deps.repository.claimNotification({
+        remediationId: existing.id,
+        topicId: existing.topicId,
+        jobId: existing.jobId,
+        dedupeKey: `${job.id}:blocked`,
+      }))
+    )
+      return;
     const state = await this.deps.service.openBlocked(job, actor, reason);
+    if (
+      !existing &&
+      this.deps.repository.claimNotification &&
+      !(await this.deps.repository.claimNotification({
+        remediationId: state.id,
+        topicId: state.topicId,
+        jobId: state.jobId,
+        dedupeKey: `${job.id}:blocked`,
+      }))
+    )
+      return;
     await this.deps.adapter.sendFinalReviewCard(
       actor.chatId,
       state.pendingUrl && state.retrievalFailure
@@ -1401,7 +1460,7 @@ function retrievalRecoveryCard(state: ResearchRemediation, secret: string) {
   const retryable = ["429_retry_after", "429_cooldown"].includes(failure.code);
   return {
     topicId: state.topicId,
-    text: `<b>Official source could not be retrieved</b>\nReason: ${escape(failure.code)}\nReference: ${escape(failure.diagnosticId)}${failure.retryAt ? `\nHost cooldown until: ${escape(failure.retryAt)}` : ""}\n\nThe topic remains blocked and no source was added.`,
+    text: `<b>Official source could not be retrieved</b>\nCanonical source: ${escape(state.pendingUrl ?? "unavailable")}\nReason: ${escape(failure.code)}\nReference: ${escape(failure.diagnosticId)}${failure.retryAt ? `\nHost cooldown until: ${escape(failure.retryAt)}` : ""}\n\nThe topic remains blocked and no source was added.`,
     buttons: [
       [button("Provide source evidence", "provide_evidence", state, secret)],
       ...(retryable
@@ -1412,6 +1471,27 @@ function retrievalRecoveryCard(state: ResearchRemediation, secret: string) {
       [button("Cancel source attempt", "cancel", state, secret)],
     ],
   };
+}
+
+function retrievalFailureFromSource(source: ResearchSource) {
+  const warning = source.warnings.join("; ");
+  const code = /429_retry_after/i.test(warning)
+    ? ("429_retry_after" as const)
+    : /429_cooldown|HTTP 429/i.test(warning)
+      ? ("429_cooldown" as const)
+      : /robots_denied|blocked by robots/i.test(warning)
+        ? ("robots_denied" as const)
+        : /403_forbidden|HTTP 403/i.test(warning)
+          ? ("403_forbidden" as const)
+          : ("retrieval" as const);
+  const retryAt = /(?:until|retry at)\s+(\d{4}-\d{2}-\d{2}T[^;\s]+)/i.exec(
+    warning,
+  )?.[1];
+  return retrievalFailureSchema.parse({
+    code,
+    diagnosticId: `diag_${hash(`${source.id}:${warning}`).slice(0, 16)}`,
+    retryAt,
+  });
 }
 
 function evidenceInputCard(

@@ -26,6 +26,10 @@ export const sourceItemSchema = z.object({
   author: z.string().min(1).optional(),
   publishedAt: z.string().datetime({ offset: true }).optional(),
   retrievedAt: z.string().datetime({ offset: true }),
+  contentRetrievalStatus: z
+    .enum(["not_attempted", "retrieved", "unavailable"])
+    .optional(),
+  contentProvenance: z.enum(["feed_metadata", "retrieved_content"]).optional(),
   categories: z.array(z.string()),
   tags: z.array(z.string()),
   language: z.string().min(2),
@@ -49,6 +53,8 @@ export interface SourceItemInput {
   author?: string;
   publishedAt?: string;
   retrievedAt: string;
+  contentRetrievalStatus?: "not_attempted" | "retrieved" | "unavailable";
+  contentProvenance?: "feed_metadata" | "retrieved_content";
   categories?: string[];
   tags?: string[];
   language: string;
@@ -88,6 +94,8 @@ export function createSourceItem(input: SourceItemInput): SourceItem {
     publishedAt: input.publishedAt
       ? new Date(input.publishedAt).toISOString()
       : undefined,
+    contentRetrievalStatus: input.contentRetrievalStatus ?? "not_attempted",
+    contentProvenance: input.contentProvenance ?? "feed_metadata",
     categories: uniqueStrings(input.categories ?? []),
     tags: uniqueStrings(input.tags ?? []),
     rawMetadata: input.rawMetadata ?? {},

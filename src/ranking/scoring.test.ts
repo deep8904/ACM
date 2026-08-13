@@ -45,6 +45,10 @@ describe("scoreCluster", () => {
     );
     expect(fresh.score).toBeGreaterThan(old.score);
     expect(fresh.evidenceStrength).toBe("strong");
+    expect(fresh.selectionReasons).toContain(
+      "primary source identified; retrieval pending",
+    );
+    expect(fresh.selectionReasons).not.toContain("primary source present");
     expect(old.penalties.singleSource).toBeLessThan(0);
   });
 

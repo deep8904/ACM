@@ -40,6 +40,7 @@ describe("free hosted scheduler configuration", () => {
     expect(triggers.workflow_dispatch).toMatchObject({
       inputs: {
         manual_discovery: { default: false, type: "boolean" },
+        audit_only: { default: false, type: "boolean" },
         manual_test_id: { type: "string" },
         manual_window_start: { type: "string" },
         manual_window_end: { type: "string" },
@@ -54,7 +55,7 @@ describe("free hosted scheduler configuration", () => {
     });
     expect(jobs.drain.steps).toContainEqual({
       name: "Enqueue isolated manual test discovery",
-      if: "${{ github.event_name == 'workflow_dispatch' && inputs.migration_only != true && inputs.manual_discovery == true }}",
+      if: "${{ github.event_name == 'workflow_dispatch' && inputs.migration_only != true && inputs.audit_only != true && inputs.manual_discovery == true }}",
       env: {
         MANUAL_DISCOVERY_TEST_ID: "${{ inputs.manual_test_id }}",
         MANUAL_DISCOVERY_WINDOW_START: "${{ inputs.manual_window_start }}",
@@ -64,7 +65,7 @@ describe("free hosted scheduler configuration", () => {
     });
     expect(jobs.drain.steps).toContainEqual({
       name: "Reconcile and drain durable work",
-      if: "${{ github.event_name != 'workflow_dispatch' || inputs.migration_only != true }}",
+      if: "${{ github.event_name != 'workflow_dispatch' || (inputs.migration_only != true && inputs.audit_only != true) }}",
       run: "npm run automation:worker",
     });
     expect(jobs.drain.steps).toContainEqual({
@@ -75,6 +76,11 @@ describe("free hosted scheduler configuration", () => {
         AUDIT_JOB_IDS: "${{ inputs.audit_job_ids }}",
       },
       run: "npm run automation:audit",
+    });
+    expect(jobs.drain.steps).toContainEqual({
+      name: "Apply additive database migrations",
+      if: "${{ github.event_name != 'workflow_dispatch' || inputs.audit_only != true }}",
+      run: "npm run db:migrate",
     });
     expect(jobs.drain.env.SITE_ORIGIN).toBe("${{ vars.SITE_ORIGIN }}");
     expect(jobs.drain.env.GOOGLE_AI_MODEL).toBe(

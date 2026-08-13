@@ -68,4 +68,20 @@ describe("TelegramBotApiClient", () => {
     ).rejects.toBeInstanceOf(TelegramApiError);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("does not duplicate sendMessage after an ambiguous transport failure", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("response lost"));
+    const client = new TelegramBotApiClient({
+      botToken: "123456:SECRET_TOKEN_VALUE",
+      fetch: fetchMock,
+      maxRetries: 2,
+      sleep: async () => undefined,
+      logger: () => undefined,
+    });
+
+    await expect(client.sendStatusMessage("10", "hello")).rejects.toThrow(
+      "outcome is unknown",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

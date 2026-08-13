@@ -35,6 +35,11 @@ on:
         description: "Optional comma-separated automation-job IDs for a redacted read-only audit"
         required: false
         type: string
+      audit_only:
+        description: "Run only the redacted read-only audit; skip migrations, reconciliation, and job draining"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -83,6 +88,7 @@ jobs:
           cache: npm
       - run: npm ci --include=dev
       - name: Apply additive database migrations
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.audit_only != true }}
         run: npm run db:migrate
       - name: Audit requested research lineage
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.migration_only != true && (inputs.audit_event_ids != '' || inputs.audit_job_ids != '') }}
@@ -91,12 +97,12 @@ jobs:
           AUDIT_JOB_IDS: ${{ inputs.audit_job_ids }}
         run: npm run automation:audit
       - name: Enqueue isolated manual test discovery
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.migration_only != true && inputs.manual_discovery == true }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.migration_only != true && inputs.audit_only != true && inputs.manual_discovery == true }}
         env:
           MANUAL_DISCOVERY_TEST_ID: ${{ inputs.manual_test_id }}
           MANUAL_DISCOVERY_WINDOW_START: ${{ inputs.manual_window_start }}
           MANUAL_DISCOVERY_WINDOW_END: ${{ inputs.manual_window_end }}
         run: npm run automation:manual-discovery
       - name: Reconcile and drain durable work
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.migration_only != true }}
+        if: ${{ github.event_name != 'workflow_dispatch' || (inputs.migration_only != true && inputs.audit_only != true) }}
         run: npm run automation:worker
