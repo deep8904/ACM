@@ -55,7 +55,7 @@ Use the configured webhook secret token. Remove the old `trycloudflare.com` webh
 
 ## 5. Go/no-go
 
-- Database migration is `023/023` and valid.
+- Database migration is `024/024` and valid.
 - The GitHub worker workflow completes from `workflow_dispatch` without a laptop.
 - A scheduled or manually dispatched worker run writes a fresh `github_actions` scheduler heartbeat and a fresh worker heartbeat.
 - `/api/health` returns ready.

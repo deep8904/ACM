@@ -2,6 +2,7 @@ import type { DatabaseClient, DatabaseTransaction } from "../database/client";
 import { withTransaction } from "../database/client";
 import { TelegramControlError } from "./errors";
 import type { TopicApprovalRepository } from "./interfaces";
+import type { RankingRunOrigin } from "./interfaces";
 import {
   conversationStateSchema,
   messageIndexSchema,
@@ -89,6 +90,95 @@ export class PostgresTopicApprovalRepository implements TopicApprovalRepository 
       PayloadRow[]
     >`select payload from content_machine.topic_queue_items order by created_at, id`;
     return rows.map((row) => topicQueueItemSchema.parse(row.payload));
+  }
+  async activateRankedRun(
+    runId: string,
+    origin: RankingRunOrigin,
+    eligibleCount: number,
+    items: readonly TopicQueueItem[],
+  ) {
+    return withTransaction(this.sql, async (tx) => {
+      await tx`select pg_advisory_xact_lock(4247182937)`;
+      const report = await tx<{ ranked_at: Date | string }[]>`
+        select coalesce((payload->>'createdAt')::timestamptz,created_at) as ranked_at
+        from content_machine.workflow_artifacts
+        where run_id=${runId} and stage='ranking' and name='ranking-report.json'
+      `;
+      if (!report[0]) throw new Error(`Ranking report is missing for ${runId}`);
+
+      const existing = await tx<
+        { status: "actionable" | "empty" | "superseded" }[]
+      >`
+        select status from content_machine.ranking_sets where run_id=${runId}
+      `;
+      if (existing[0])
+        return {
+          status: existing[0].status,
+          items:
+            existing[0].status === "actionable"
+              ? await this.queueForRun(tx, runId)
+              : [],
+        };
+
+      const rankedAt = new Date(report[0].ranked_at).toISOString();
+      const current = await tx<{ run_id: string; ranked_at: Date | string }[]>`
+        select run_id,ranked_at from content_machine.ranking_sets
+        where status='actionable' for update
+      `;
+      if (eligibleCount === 0 || items.length === 0) {
+        await tx`
+          insert into content_machine.ranking_sets
+            (run_id,origin,status,eligible_count,display_count,ranked_at)
+          values (${runId},${origin},'empty',${eligibleCount},${items.length},${rankedAt})
+        `;
+        return { status: "empty" as const, items: [] };
+      }
+      const active = current[0];
+      if (
+        active &&
+        (new Date(active.ranked_at).getTime() > new Date(rankedAt).getTime() ||
+          (new Date(active.ranked_at).getTime() ===
+            new Date(rankedAt).getTime() &&
+            active.run_id.localeCompare(runId) > 0))
+      ) {
+        await tx`
+          insert into content_machine.ranking_sets
+            (run_id,origin,status,eligible_count,display_count,ranked_at,superseded_by,superseded_at)
+          values (${runId},${origin},'superseded',${eligibleCount},${items.length},${rankedAt},${active.run_id},now())
+        `;
+        return { status: "superseded" as const, items: [] };
+      }
+
+      for (const item of items) await this.writeQueue(tx, item);
+      if (active) {
+        await tx`
+          update content_machine.ranking_sets
+          set status='superseded',superseded_by=${runId},superseded_at=now(),updated_at=now()
+          where run_id=${active.run_id} and status='actionable'
+        `;
+        await tx`
+          update content_machine.topic_queue_items
+          set approval_status='superseded',version=version+1,updated_at=now(),
+            payload=jsonb_set(
+              jsonb_set(
+                jsonb_set(payload,'{approvalStatus}','"superseded"'::jsonb),
+                '{version}',to_jsonb(version+1)
+              ),
+              '{updatedAt}',to_jsonb(now()::text)
+            )
+          where run_id=${active.run_id} and approval_status='pending'
+        `;
+      }
+      await tx`
+        insert into content_machine.ranking_sets
+          (run_id,origin,status,eligible_count,display_count,ranked_at,activated_at)
+        values (${runId},${origin},'actionable',${eligibleCount},${items.length},${rankedAt},now())
+      `;
+      return {
+        status: "actionable" as const,
+        items: await this.queueForRun(tx, runId),
+      };
+    });
   }
   async getConversation(chatId: string, userId: string) {
     return one(
@@ -283,5 +373,12 @@ export class PostgresTopicApprovalRepository implements TopicApprovalRepository 
       where id=${value.id} and version=${expected} returning id
     `;
     if (!rows[0]) conflict();
+  }
+  private async queueForRun(sql: Queryable, runId: string) {
+    const rows = await sql<PayloadRow[]>`
+      select payload from content_machine.topic_queue_items
+      where run_id=${runId} order by created_at,id
+    `;
+    return rows.map((row) => topicQueueItemSchema.parse(row.payload));
   }
 }

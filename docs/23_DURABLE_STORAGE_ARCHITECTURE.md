@@ -76,6 +76,8 @@ Sensitivity labels: **private** means workflow/operator data; **restricted** mea
 
 There are 53 explicit persistence-facing interfaces/catalogs and two additional direct-file artifact families, for 55 audited storage concerns. Some interfaces are deliberately implemented as consistent views over the same underlying tables rather than independent storage tables. This avoids duplicating state while retaining existing business contracts.
 
+Topic recommendation state is explicit in Postgres. `ranking_sets` records current, superseded, and empty runs; `PostgresTopicApprovalRepository` persists run-scoped Telegram cards and switches the single actionable set in one transaction. Empty or delayed older runs cannot displace the current set, and `PostgresTopicCatalog` resolves `/topics` through that durable actionable pointer rather than artifact insertion order.
+
 ## Relational model
 
 The schema is normalized around stable identities and lineage:
