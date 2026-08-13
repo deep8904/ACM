@@ -460,14 +460,11 @@ export class AutomationWorker {
     const imported = await withTemporaryJson(generated.value, (path) =>
       services.review.import(topicId, draftVersion, path),
     );
-    if (imported.review.decision === "block")
-      throw new BlockedAutomationError(
-        `Editorial review blocked: ${imported.review.summary}`,
-      );
-    if (imported.review.decision === "revise") {
-      const issueIds = imported.review.issues
-        .filter((issue) => issue.status === "open")
-        .map((issue) => issue.id);
+    const issueIds = revisionIssueIdsForDecision(
+      imported.review.decision,
+      imported.review.issues,
+    );
+    if (issueIds.length) {
       await services.revision.prepare(topicId, draftVersion, issueIds, {
         origin: "editorial_review",
       });
@@ -478,6 +475,10 @@ export class AutomationWorker {
         issueCount: issueIds.length,
       };
     }
+    if (imported.review.decision === "block")
+      throw new BlockedAutomationError(
+        `Editorial review blocked without an actionable open issue: ${imported.review.summary}`,
+      );
     await services.preview.create(topicId, draftVersion);
     for (const [
       index,
@@ -807,6 +808,16 @@ export class AutomationWorker {
     });
     return { controller, repository, service };
   }
+}
+
+export function revisionIssueIdsForDecision(
+  decision: "pass" | "pass_with_warnings" | "revise" | "block",
+  issues: Array<{ id: string; status: string }>,
+) {
+  if (!["revise", "block"].includes(decision)) return [];
+  return issues
+    .filter((issue) => issue.status === "open")
+    .map((issue) => issue.id);
 }
 
 export async function runAutomationWorker(
