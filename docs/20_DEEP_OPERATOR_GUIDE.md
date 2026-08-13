@@ -41,6 +41,8 @@ Topic approval and exact final-article approval are mandatory and cannot be bypa
 
 Failures stop safely. Telegram shows a short reason and diagnostic reference, never a secret or internal stack trace.
 
+The current topic batch is a durable ranking set, not whichever ranking artifact happened to be written last. A replacement becomes current only after at least one eligible card is persisted. Empty discoveries, reconciliation, delayed workers, and retries leave the current pending set actionable. A genuinely newer eligible set supersedes the prior set and its cards in the same database transaction.
+
 - Transient provider, network, Telegram, GitHub, and Vercel failures use bounded exponential retries.
 - A crashed worker's lease expires and another worker reclaims the same deterministic job.
 - Schema-invalid AI output is rejected and retried; it is never silently accepted.
@@ -76,3 +78,5 @@ Private audit data is in the non-exposed Postgres `content_machine` schema:
 ## Advanced recovery only
 
 The `npm` commands remain available for developers and disaster recovery. They are not part of daily operation. Never use manual imports or publication commands to bypass Telegram approval, immutable version lineage, or production verification.
+
+- `npm run automation:restore-ranking -- <run_id> <scheduled|manual_test|other>` reactivates an intact ranked artifact set, creates fresh run-scoped Telegram cards, and leaves the scheduled discovery cursor unchanged. Use it only for audited ranking-state recovery; it does not approve a topic or start publication.

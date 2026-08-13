@@ -23,6 +23,7 @@ import {
 import type {
   DnsLookup,
   EditorialNotificationAdapter,
+  RankingRunOrigin,
   TopicApprovalRepository,
   TopicCatalog,
 } from "./interfaces";
@@ -346,16 +347,18 @@ export class TopicApprovalService {
     chatId: string,
     runId?: string,
     onlyUndisplayed = false,
+    activateAs?: RankingRunOrigin,
   ): Promise<void> {
     const run = await this.options.catalog.getRun(runId);
-    const cards: TopicQueueItem[] = [];
+    const proposed: TopicQueueItem[] = [];
     for (const candidate of run.candidates.slice(
       0,
       this.options.config.TELEGRAM_RECOMMENDATION_BATCH_SIZE,
     )) {
       const cluster = run.clusters.find(({ id }) => id === candidate.clusterId);
       if (!cluster) continue;
-      let item = await this.options.repository.getQueueItem(candidate.id);
+      const topicId = rankedTopicId(run.runId, candidate.id);
+      let item = await this.options.repository.getQueueItem(topicId);
       if (!item) {
         item = createRankedQueueItem(
           candidate,
@@ -363,10 +366,26 @@ export class TopicApprovalService {
           this.now(),
           this.options.config.TELEGRAM_TOPIC_EXPIRY_HOURS,
         );
-        await this.options.repository.saveQueueItem(item);
+        if (!activateAs) await this.options.repository.saveQueueItem(item);
       }
-      if (!onlyUndisplayed || !item.displayedAt) cards.push(item);
+      proposed.push(item);
     }
+    const activated = activateAs
+      ? await this.options.repository.activateRankedRun?.(
+          run.runId,
+          activateAs,
+          run.candidates.length,
+          proposed,
+        )
+      : undefined;
+    if (activateAs && !activated) {
+      for (const item of proposed)
+        await this.options.repository.saveQueueItem(item);
+    }
+    const available = activated?.items ?? proposed;
+    const cards = available.filter(
+      (item) => !onlyUndisplayed || !item.displayedAt,
+    );
     if (cards.length === 0) {
       await this.options.adapter.sendStatusMessage(
         chatId,
@@ -1137,10 +1156,11 @@ function createRankedQueueItem(
   now: Date,
   expiryHours: number,
 ): TopicQueueItem {
+  const identity = hash(`${candidate.runId}\0${candidate.id}`);
   return topicQueueItemSchema.parse({
-    id: `queue_${hash(candidate.id).slice(0, 24)}`,
-    shortId: hash(candidate.id).slice(0, 12),
-    topicId: candidate.id,
+    id: `queue_${identity.slice(0, 24)}`,
+    shortId: identity.slice(0, 12),
+    topicId: rankedTopicId(candidate.runId, candidate.id),
     candidateId: candidate.id,
     runId: candidate.runId,
     candidateSnapshot: { kind: "ranked", candidate, cluster },
@@ -1155,6 +1175,10 @@ function createRankedQueueItem(
     updatedAt: now.toISOString(),
     version: 1,
   });
+}
+
+function rankedTopicId(runId: string, candidateId: string): string {
+  return `topic_${hash(`${runId}\0${candidateId}`).slice(0, 24)}`;
 }
 
 function resolveReference(

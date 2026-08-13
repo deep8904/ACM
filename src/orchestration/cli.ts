@@ -7,6 +7,9 @@ import { manualDiscoveryJob, reconcileAutomationQueue } from "./reconcile";
 import { PostgresAutomationJobRepository } from "./repository";
 import { runAutomationWorker } from "./worker";
 import { auditProductionResearch } from "./production-audit";
+import { requireTelegramRuntimeConfig } from "../telegram/config";
+import { TopicApprovalService } from "../telegram/service";
+import { TelegramBotApiClient } from "../telegram/telegram-client";
 
 export async function main(args: string[]) {
   const command = args[0] ?? "drain";
@@ -41,7 +44,42 @@ export async function main(args: string[]) {
       console.log(
         JSON.stringify(await productionReadiness(composition.sql), null, 2),
       );
-    else if (command === "audit") {
+    else if (command === "restore-ranking") {
+      const runId = required(args[1]);
+      const origin = args[2] ?? "scheduled";
+      const rankingOrigin = (
+        ["scheduled", "manual_test", "other"] as const
+      ).find((value) => value === origin);
+      if (!rankingOrigin)
+        throw new Error(
+          "Ranking origin must be scheduled, manual_test, or other",
+        );
+      const config = requireTelegramRuntimeConfig(process.env, "api");
+      const service = new TopicApprovalService({
+        adapter: new TelegramBotApiClient({
+          botToken: config.TELEGRAM_BOT_TOKEN as string,
+        }),
+        repository: composition.telegram,
+        catalog: composition.catalog,
+        config,
+      });
+      for (const chatId of config.TELEGRAM_ALLOWED_CHAT_IDS)
+        await service.showTopics(chatId, runId, true, rankingOrigin);
+      console.log(
+        JSON.stringify(
+          {
+            runId: await composition.catalog.latestRunId(),
+            candidateCount: (
+              await composition.catalog.getRun()
+            ).candidates.slice(0, config.TELEGRAM_RECOMMENDATION_BATCH_SIZE)
+              .length,
+            notifiedChats: config.TELEGRAM_ALLOWED_CHAT_IDS.length,
+          },
+          null,
+          2,
+        ),
+      );
+    } else if (command === "audit") {
       const eventIds = list(process.env.AUDIT_EVENT_IDS);
       const jobIds = list(process.env.AUDIT_JOB_IDS);
       if (!eventIds.length && !jobIds.length)

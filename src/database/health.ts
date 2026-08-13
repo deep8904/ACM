@@ -3,6 +3,7 @@ import { migrationStatus } from "./migrations";
 
 export const CRITICAL_TABLES = [
   "topic_queue_items",
+  "ranking_sets",
   "topic_approvals",
   "telegram_updates",
   "topic_approved_events",

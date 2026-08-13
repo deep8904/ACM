@@ -255,7 +255,16 @@ export class AutomationWorker {
       config: this.telegramConfig,
     });
     for (const chatId of this.telegramConfig.TELEGRAM_ALLOWED_CHAT_IDS)
-      await topics.showTopics(chatId, runId, true);
+      await topics.showTopics(
+        chatId,
+        runId,
+        true,
+        job.payload.scheduled === true
+          ? "scheduled"
+          : job.payload.manual === true && job.payload.test === true
+            ? "manual_test"
+            : "other",
+      );
     return {
       runId,
       ranked: ranking.ranked.length,

@@ -104,6 +104,7 @@
     "automation:cancel": "tsx src/orchestration/cli.ts cancel",
     "automation:readiness": "tsx src/orchestration/cli.ts readiness",
     "automation:audit": "tsx src/orchestration/cli.ts audit",
+    "automation:restore-ranking": "tsx src/orchestration/cli.ts restore-ranking",
     "storage:migrate": "tsx src/database/storage-migrate-cli.ts",
     "schemas:analytics": "node --import tsx src/analytics/generate-schemas.ts",
     "start": "next start",

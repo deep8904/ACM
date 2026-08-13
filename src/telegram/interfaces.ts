@@ -54,6 +54,16 @@ export interface EditorialNotificationAdapter {
 }
 
 export interface TopicApprovalRepository {
+  /** PostgreSQL implementations atomically persist a replacement card set and make it current. */
+  activateRankedRun?(
+    runId: string,
+    origin: RankingRunOrigin,
+    eligibleCount: number,
+    items: readonly TopicQueueItem[],
+  ): Promise<{
+    status: "actionable" | "empty" | "superseded";
+    items: TopicQueueItem[];
+  }>;
   /** Postgres implementations use this to commit the queue decision and outbox atomically. */
   saveDecision?(
     item: TopicQueueItem,
@@ -113,5 +123,7 @@ export interface TopicCatalog {
   getRun(runId?: string): Promise<RankedRun>;
   latestRunId(): Promise<string>;
 }
+
+export type RankingRunOrigin = "scheduled" | "manual_test" | "other";
 
 export type DnsLookup = (hostname: string) => Promise<readonly string[]>;

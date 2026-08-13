@@ -10,9 +10,9 @@ export class PostgresTopicCatalog implements TopicCatalog {
   constructor(private sql: DatabaseClient) {}
   async latestRunId(): Promise<string> {
     const rows = await this.sql<{ run_id: string }[]>`
-      select run_id from content_machine.workflow_artifacts
-      where stage='ranking' and name='ranking-report.json'
-      order by created_at desc,run_id desc limit 1
+      select run_id from content_machine.ranking_sets
+      where status='actionable'
+      limit 1
     `;
     if (!rows[0])
       throw new TelegramControlError(
