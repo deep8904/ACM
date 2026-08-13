@@ -936,12 +936,28 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       }))
     )
       return;
-    await this.deps.adapter.sendFinalReviewCard(
+    const sent = await this.deps.adapter.sendFinalReviewCard(
       actor.chatId,
       state.pendingUrl && state.retrievalFailure
         ? retrievalRecoveryCard(state, this.deps.callbackSecret)
         : blockedCard(state, this.deps.callbackSecret),
     );
+    await this.deps.repository
+      .audit({
+        remediationId: state.id,
+        topicId: state.topicId,
+        jobId: state.jobId,
+        action: "operator_notification_delivered",
+        dedupeKey: `${job.id}:blocked:${state.version}:delivered`,
+        details: { telegramMessageId: sent.messageId, version: state.version },
+      })
+      .catch((error) =>
+        this.deps.logger?.("warn", "research_notification_receipt_failed", {
+          jobId: job.id,
+          remediationId: state.id,
+          error: error instanceof Error ? error.message : "unknown",
+        }),
+      );
   }
 
   async showActionableJobs(actor: TelegramActor) {
