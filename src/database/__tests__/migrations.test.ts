@@ -29,6 +29,7 @@ describe("database migrations", () => {
       "020",
       "021",
       "022",
+      "023",
     ]);
     const sql = migrations.map((item) => item.sql).join("\n");
     expect(sql).toContain("create schema if not exists content_machine");
@@ -76,5 +77,17 @@ describe("database migrations", () => {
       "research_source_evidence_records",
     ])
       expect(sql).toContain(`${table}_immutable`);
+  });
+  it("repairs only malformed seeded interests and their failed discovery run", async () => {
+    const migration = (await loadMigrations()).find(
+      (item) => item.version === "023",
+    );
+    expect(migration?.sql).toContain("content_machine.editorial_interests");
+    expect(migration?.sql).toContain("at time zone 'UTC'");
+    expect(migration?.sql).toContain("job_type='discovery'");
+    expect(migration?.sql).toContain(
+      "failure_summary like '%Invalid ISO datetime%'",
+    );
+    expect(migration?.sql).not.toMatch(/delete\s+from/i);
   });
 });
