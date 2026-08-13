@@ -55,7 +55,9 @@ insert into content_machine.editorial_interests
 select id,short_id,name,normalized_name,keywords,'enabled',true,1,now(),now(),
   jsonb_build_object(
     'id',id,'shortId',short_id,'name',name,'keywords',keywords,'status','enabled',
-    'isDefault',true,'version',1,'createdAt',to_jsonb(now()::text),'updatedAt',to_jsonb(now()::text)
+    'isDefault',true,'version',1,
+    'createdAt',to_jsonb(to_char(now() at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')),
+    'updatedAt',to_jsonb(to_char(now() at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
   )
 from defaults on conflict(normalized_name) do nothing;
 
