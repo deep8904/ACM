@@ -53,6 +53,40 @@ export interface ResearchSourceExtensionRepository {
     extractedText: string,
   ): Promise<ResearchPacket>;
 }
+export interface HumanAssistedEvidenceRecord {
+  id: string;
+  remediationId: string;
+  topicId: string;
+  eventId: string;
+  jobId: string;
+  basePacketVersion: number;
+  packetVersion: number;
+  sourceId: string;
+  sourceContentHash: string;
+  canonicalUrl: string;
+  publisherOwner: string;
+  acquisitionMode: "human_assisted_primary_evidence";
+  operatorActorHash: string;
+  evidenceHash: string;
+  evidenceText: string;
+  provenanceStatement: string;
+  originalDiagnosticId: string;
+  originalFailureCode:
+    | "429_retry_after"
+    | "429_cooldown"
+    | "robots_denied"
+    | "403_forbidden"
+    | "retrieval";
+  confirmedAt: string;
+}
+export interface HumanAssistedEvidenceRepository {
+  persist(
+    base: ResearchPacket,
+    packet: ResearchPacket,
+    source: ResearchSource,
+    evidence: HumanAssistedEvidenceRecord,
+  ): Promise<ResearchPacket>;
+}
 export interface ResearchPacketRepository {
   nextVersion(topicId: string): Promise<number>;
   save(packet: ResearchPacket): Promise<void>;

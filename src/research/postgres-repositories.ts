@@ -9,6 +9,8 @@ import {
 import type {
   AssistedResearchImportRepository,
   ApprovedEventRepository,
+  HumanAssistedEvidenceRecord,
+  HumanAssistedEvidenceRepository,
   ResearchCacheRepository,
   ResearchJobRepository,
   ResearchPacketRepository,
@@ -388,6 +390,75 @@ export class PostgresResearchSourceExtensionRepository implements ResearchSource
         insert into content_machine.research_packets
           (id,topic_id,approved_event_id,packet_version,import_hash,content_hash,payload)
         values (${value.id},${value.topicId},${value.approvedEventId},${value.version},null,${sha256(JSON.stringify(value))},${tx.json(toJsonValue(value))})
+      `;
+      return value;
+    });
+  }
+}
+
+export class PostgresHumanAssistedEvidenceRepository implements HumanAssistedEvidenceRepository {
+  constructor(private sql: DatabaseClient) {}
+
+  async persist(
+    base: ResearchPacket,
+    packet: ResearchPacket,
+    source: ResearchSource,
+    evidence: HumanAssistedEvidenceRecord,
+  ) {
+    const candidate = researchPacketSchema.parse(packet);
+    const sourceValue = researchSourceSchema.parse(source);
+    return withTransaction(this.sql, async (tx) => {
+      await tx`select pg_advisory_xact_lock(hashtextextended(${base.topicId}, 0))`;
+      const duplicate = await tx<PayloadRow[]>`
+        select p.payload
+        from content_machine.research_source_evidence_records e
+        join content_machine.research_packets p
+          on p.topic_id=e.topic_id and p.packet_version=e.packet_version
+        where e.remediation_id=${evidence.remediationId}
+          and e.evidence_hash=${evidence.evidenceHash}
+        limit 1
+      `;
+      if (duplicate[0]) return researchPacketSchema.parse(duplicate[0].payload);
+      const latestRows = await tx<PayloadRow[]>`
+        select payload from content_machine.research_packets
+        where topic_id=${base.topicId}
+        order by packet_version desc limit 1 for update
+      `;
+      const latest = latestRows[0]
+        ? researchPacketSchema.parse(latestRows[0].payload)
+        : undefined;
+      if (!latest || latest.version !== base.version)
+        throw new Error("Research packet advanced during evidence acceptance");
+      const versions = await tx<{ version: number }[]>`
+        select coalesce(max(packet_version),0)::int + 1 as version
+        from content_machine.research_packets where topic_id=${base.topicId}
+      `;
+      const version = versions[0]?.version ?? base.version + 1;
+      const value = researchPacketSchema.parse({ ...candidate, version });
+      const record = { ...evidence, packetVersion: version };
+      await tx`
+        insert into content_machine.research_sources
+          (id,topic_id,canonical_url,content_hash,extracted_text,byte_length,payload,retrieved_at)
+        values (${sourceValue.id},${sourceValue.topicId},${sourceValue.canonicalUrl},${sourceValue.contentHash},${record.evidenceText},${Buffer.byteLength(record.evidenceText)},${tx.json(toJsonValue(sourceValue))},${sourceValue.retrievedAt})
+        on conflict (topic_id,canonical_url,content_hash) do nothing
+      `;
+      await tx`
+        insert into content_machine.research_packets
+          (id,topic_id,approved_event_id,packet_version,import_hash,content_hash,payload)
+        values (${value.id},${value.topicId},${value.approvedEventId},${value.version},null,${sha256(JSON.stringify(value))},${tx.json(toJsonValue(value))})
+      `;
+      await tx`
+        insert into content_machine.research_source_evidence_records
+          (id,remediation_id,topic_id,event_id,job_id,base_packet_version,packet_version,
+           source_id,source_content_hash,canonical_url,publisher_owner,acquisition_mode,operator_actor_hash,evidence_hash,
+           evidence_text,provenance_statement,original_diagnostic_id,original_failure_code,
+           payload,confirmed_at)
+        values (${record.id},${record.remediationId},${record.topicId},${record.eventId},${record.jobId},
+          ${record.basePacketVersion},${record.packetVersion},${record.sourceId},${record.sourceContentHash},
+          ${record.canonicalUrl},${record.publisherOwner},
+          ${record.acquisitionMode},${record.operatorActorHash},${record.evidenceHash},${record.evidenceText},
+          ${record.provenanceStatement},${record.originalDiagnosticId},${record.originalFailureCode},
+          ${tx.json(toJsonValue(record))},${record.confirmedAt})
       `;
       return value;
     });

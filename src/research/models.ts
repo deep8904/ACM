@@ -53,6 +53,7 @@ export const researchSourceSchema = z
       "xml",
       "metadata",
       "cache",
+      "human_evidence",
     ]),
     extractionStatus: z.enum([
       "pending",
@@ -83,6 +84,27 @@ export const researchSourceSchema = z
     licenseNotes: z.string(),
     warnings: z.array(z.string()),
     rawMetadata: z.record(z.string(), z.unknown()),
+    acquisitionMode: z
+      .enum(["automatic_retrieval", "human_assisted_primary_evidence"])
+      .optional(),
+    evidenceRecordId: z
+      .string()
+      .regex(/^evidence_[a-f0-9]{24}$/)
+      .optional(),
+    operatorActorHash: hash.optional(),
+    originalRetrievalFailure: z
+      .object({
+        code: z.enum([
+          "429_retry_after",
+          "429_cooldown",
+          "robots_denied",
+          "403_forbidden",
+          "retrieval",
+        ]),
+        diagnosticId: z.string().regex(/^diag_[a-f0-9]{16}$/),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type ResearchSource = z.infer<typeof researchSourceSchema>;
@@ -245,6 +267,30 @@ export const researchPacketSchema = z
           sourceType: researchSourceSchema.shape.sourceType,
           publisher: z.string().min(1),
           publisherOwner: z.string().min(1),
+        })
+        .strict()
+        .optional(),
+      humanAssistedEvidence: z
+        .object({
+          evidenceRecordId: z.string().regex(/^evidence_[a-f0-9]{24}$/),
+          acquisitionMode: z.literal("human_assisted_primary_evidence"),
+          canonicalUrl: z.string().url(),
+          publisherOwner: z.string().min(1),
+          operatorActorHash: hash,
+          evidenceHash: hash,
+          confirmedAt: iso,
+          originalRetrievalFailure: z
+            .object({
+              code: z.enum([
+                "429_retry_after",
+                "429_cooldown",
+                "robots_denied",
+                "403_forbidden",
+                "retrieval",
+              ]),
+              diagnosticId: z.string().regex(/^diag_[a-f0-9]{16}$/),
+            })
+            .strict(),
         })
         .strict()
         .optional(),

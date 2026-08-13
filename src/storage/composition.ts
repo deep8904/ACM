@@ -60,6 +60,7 @@ import {
 import {
   PostgresAssistedResearchImportRepository,
   PostgresApprovedEventRepository,
+  PostgresHumanAssistedEvidenceRepository,
   PostgresResearchJobRepository,
   PostgresResearchPacketRepository,
   PostgresResearchSourceExtensionRepository,
@@ -69,6 +70,7 @@ import {
 import {
   FileAssistedResearchImportRepository,
   FileApprovedEventRepository,
+  FileHumanAssistedEvidenceRepository,
   FileResearchJobRepository,
   FileResearchPacketRepository,
   FileResearchSourceExtensionRepository,
@@ -286,6 +288,7 @@ function fileComposition(paths: StoragePaths) {
       jobs: new FileResearchJobRepository(paths.research),
       packets: researchPackets,
       extensions: new FileResearchSourceExtensionRepository(paths.research),
+      humanEvidence: new FileHumanAssistedEvidenceRepository(paths.research),
       sources: new FileResearchSourceRepository(paths.research),
       cache: new FileResearchSourceRepository(paths.research),
       tasks: new FileResearchTaskRepository(paths.researchTasks),
@@ -379,6 +382,7 @@ export function createPostgresRepositories(sql: DatabaseClient) {
       jobs: new PostgresResearchJobRepository(sql),
       packets: new PostgresResearchPacketRepository(sql),
       extensions: new PostgresResearchSourceExtensionRepository(sql),
+      humanEvidence: new PostgresHumanAssistedEvidenceRepository(sql),
       sources: new PostgresResearchSourceRepository(sql),
       cache: new PostgresResearchSourceRepository(sql),
       tasks: new PostgresResearchTaskRepository(sql),

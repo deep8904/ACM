@@ -17,6 +17,7 @@ import { topicQueueItemSchema, type TelegramUpdate } from "../telegram/models";
 import type { FinalReviewControl } from "../telegram/service";
 import {
   ResearchService,
+  HumanEvidenceValidationError,
   ResearchSourceInspectionError,
   type ResearchSourceExtensionInput,
 } from "./service";
@@ -99,6 +100,9 @@ export const researchRemediationSchema = z
       "blocked",
       "awaiting_url",
       "awaiting_classification",
+      "awaiting_evidence",
+      "evidence_review",
+      "awaiting_provenance",
       "queued",
       "cancelled",
       "superseded",
@@ -108,6 +112,7 @@ export const researchRemediationSchema = z
     proposal: proposalSchema.optional(),
     pendingUrl: z.string().url().optional(),
     retrievalFailure: retrievalFailureSchema.optional(),
+    evidenceChunks: z.array(z.string().min(1).max(4096)).max(8).optional(),
     createdAt: iso,
     updatedAt: iso,
     expiresAt: iso,
@@ -303,6 +308,16 @@ export class ResearchRemediationService {
       reason: conciseReason(
         reason ?? packet.blockingReasons[0] ?? "Evidence is insufficient",
       ),
+      pendingUrl:
+        packet.provenance?.humanAssistedEvidence?.canonicalUrl ??
+        (existing?.jobId === job.id ? existing.pendingUrl : undefined),
+      retrievalFailure: packet.provenance?.humanAssistedEvidence
+        ? {
+            ...packet.provenance.humanAssistedEvidence.originalRetrievalFailure,
+          }
+        : existing?.jobId === job.id
+          ? existing.retrievalFailure
+          : undefined,
       createdAt:
         existing?.id === `remediation_${identity.slice(0, 24)}`
           ? existing.createdAt
@@ -556,6 +571,116 @@ export class ResearchRemediationService {
     return alternatives;
   }
 
+  async verifyEvidencePath(state: ResearchRemediation) {
+    await this.assertCurrent(state, ["blocked"]);
+    if (!state.pendingUrl || !state.retrievalFailure)
+      throw new TelegramControlError(
+        "invalid_state_transition",
+        "There is no failed official source to supplement.",
+        409,
+      );
+    if (
+      ![
+        "429_retry_after",
+        "429_cooldown",
+        "robots_denied",
+        "403_forbidden",
+        "retrieval",
+      ].includes(state.retrievalFailure.code)
+    )
+      throw new TelegramControlError(
+        "invalid_state_transition",
+        "This source failure is not eligible for human-assisted evidence.",
+        409,
+      );
+    try {
+      return await this.deps.research.verifyHumanAssistedPrimarySource(
+        state.topicId,
+        state.pendingUrl,
+      );
+    } catch {
+      throw new TelegramControlError(
+        "invalid_url",
+        "Human-assisted primary evidence is available only for the verified official publisher URL already bound to this topic.",
+        400,
+      );
+    }
+  }
+
+  async acceptEvidence(
+    state: ResearchRemediation,
+    operatorActorHash: string,
+    dedupeKey: string,
+  ) {
+    await this.assertCurrent(state, ["awaiting_provenance"]);
+    if (!state.pendingUrl || !state.retrievalFailure)
+      throw new Error("Evidence source lineage is missing");
+    const evidenceText = (state.evidenceChunks ?? []).join("\n\n");
+    const packet = await this.deps.research.acceptHumanAssistedEvidence({
+      topicId: state.topicId,
+      remediationId: state.id,
+      eventId: state.eventId,
+      jobId: state.jobId,
+      url: state.pendingUrl,
+      evidenceText,
+      operatorActorHash,
+      provenanceStatement: `I copied this evidence from the official publisher page at ${state.pendingUrl}.`,
+      originalFailureCode: state.retrievalFailure.code as
+        | "429_retry_after"
+        | "429_cooldown"
+        | "robots_denied"
+        | "403_forbidden"
+        | "retrieval",
+      originalDiagnosticId: state.retrievalFailure.diagnosticId,
+    });
+    const provenance = packet.provenance.humanAssistedEvidence;
+    if (!provenance)
+      throw new Error("Human-assisted evidence provenance is missing");
+    const queue = await this.deps.topics.getQueueItem(state.topicId);
+    if (!queue) throw new Error("Topic queue lineage is missing");
+    if (queue.researchReadiness === "awaiting_source")
+      await this.deps.topics.saveQueueItem(
+        topicQueueItemSchema.parse({
+          ...queue,
+          researchReadiness: "ready_for_research",
+          updatedAt: this.now().toISOString(),
+          version: queue.version + 1,
+        }),
+        queue.version,
+      );
+    const job = await this.deps.jobs.enqueue({
+      type: "research",
+      idempotencyKey: automationKey(
+        `human-evidence:${state.id}:${provenance.evidenceHash}`,
+      ),
+      lineageKey: state.eventId,
+      topicId: state.topicId,
+      parentJobId: state.jobId,
+      payload: {
+        eventId: state.eventId,
+        remediationId: state.id,
+        packetVersion: packet.version,
+        acquisitionMode: "human_assisted_primary_evidence",
+      },
+    });
+    await this.deps.remediation.audit({
+      remediationId: state.id,
+      topicId: state.topicId,
+      jobId: state.jobId,
+      action: "human_evidence_accepted",
+      dedupeKey,
+      diagnosticId: state.retrievalFailure.diagnosticId,
+      details: {
+        evidenceRecordId: provenance.evidenceRecordId,
+        evidenceHash: provenance.evidenceHash,
+        packetVersion: packet.version,
+        recoveryJobId: job.id,
+        acquisitionMode: provenance.acquisitionMode,
+      },
+    });
+    return { packet, job, provenance };
+  }
+
   async cancelJob(state: ResearchRemediation, dedupeKey: string) {
     const job = await this.deps.jobs.get(state.jobId);
     if (
@@ -656,6 +781,11 @@ type CallbackAction =
   | "retry_later"
   | "find_official"
   | "paste_another"
+  | "provide_evidence"
+  | "add_more_evidence"
+  | "review_evidence"
+  | "confirm_provenance"
+  | "cancel_evidence"
   | "resume";
 
 export class ResearchRemediationTelegramController implements FinalReviewControl {
@@ -708,7 +838,9 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
     const state = await this.deps.service.openBlocked(job, actor, reason);
     await this.deps.adapter.sendFinalReviewCard(
       actor.chatId,
-      blockedCard(state, this.deps.callbackSecret),
+      state.pendingUrl && state.retrievalFailure
+        ? retrievalRecoveryCard(state, this.deps.callbackSecret)
+        : blockedCard(state, this.deps.callbackSecret),
     );
   }
 
@@ -792,7 +924,9 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       const state = await this.deps.service.resume(parsed.jobId, actor);
       await this.deps.adapter.sendFinalReviewCard(
         actor.chatId,
-        blockedCard(state, this.deps.callbackSecret),
+        state.pendingUrl && state.retrievalFailure
+          ? retrievalRecoveryCard(state, this.deps.callbackSecret)
+          : blockedCard(state, this.deps.callbackSecret),
       );
       return;
     }
@@ -820,6 +954,18 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       );
       return;
     }
+    if (
+      parsed.action === "confirm_provenance" &&
+      state.state === "queued" &&
+      state.version === parsed.version + 1
+    ) {
+      await this.deps.adapter.answerCallback(query.id);
+      await this.deps.adapter.sendStatusMessage(
+        actor.chatId,
+        "<b>Evidence already accepted ✓</b>\nThe immutable evidence and packet were created once; synthesis remains in the existing pipeline.",
+      );
+      return;
+    }
     if (state.version !== parsed.version) {
       this.logStale("version_mismatch", {
         ...parsed,
@@ -839,6 +985,78 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
     await this.deps.adapter.answerCallback(query.id);
     if (parsed.action === "add" || parsed.action === "paste_another") {
       await this.promptForUrl(state);
+    } else if (parsed.action === "provide_evidence") {
+      const official = await this.deps.service.verifyEvidencePath(state);
+      const next = await this.transition(state, "awaiting_evidence", {
+        evidenceChunks: [],
+      });
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        evidenceInputCard(
+          next,
+          official.canonicalUrl,
+          this.deps.callbackSecret,
+        ),
+      );
+    } else if (parsed.action === "add_more_evidence") {
+      const next = await this.transition(state, "awaiting_evidence");
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        evidenceInputCard(
+          next,
+          next.pendingUrl ?? "official source",
+          this.deps.callbackSecret,
+        ),
+      );
+    } else if (parsed.action === "review_evidence") {
+      const evidenceText = (state.evidenceChunks ?? []).join("\n\n");
+      if (evidenceText.length < 120 || evidenceText.split(/\s+/).length < 20)
+        throw new TelegramControlError(
+          "invalid_command",
+          "More evidence is needed: provide at least 20 words and 120 characters copied from the official page.",
+          400,
+        );
+      const next = await this.transition(state, "awaiting_provenance");
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        provenanceCard(next, this.deps.callbackSecret),
+      );
+    } else if (parsed.action === "confirm_provenance") {
+      try {
+        const result = await this.deps.service.acceptEvidence(
+          state,
+          operatorHash(actor, this.deps.callbackSecret),
+          query.id,
+        );
+        await this.transition(state, "queued", {
+          packetVersion: result.packet.version,
+          evidenceChunks: undefined,
+        });
+        await this.deps.adapter.sendStatusMessage(
+          actor.chatId,
+          `<b>Primary evidence accepted ✓</b>\nImmutable evidence ${escape(result.provenance.evidenceRecordId)} and research packet v${result.packet.version} were created. Acquisition is labeled human-assisted. Gemini synthesis is queued; writing continues only if the unchanged evidence gates pass.`,
+        );
+      } catch (error) {
+        if (error instanceof HumanEvidenceValidationError)
+          throw new TelegramControlError("invalid_command", error.message, 400);
+        throw error;
+      }
+    } else if (parsed.action === "cancel_evidence") {
+      const next = await this.transition(state, "blocked", {
+        evidenceChunks: undefined,
+      });
+      await this.deps.repository.audit({
+        remediationId: state.id,
+        topicId: state.topicId,
+        jobId: state.jobId,
+        action: "human_evidence_entry_cancelled",
+        dedupeKey: query.id,
+        diagnosticId: state.retrievalFailure?.diagnosticId,
+      });
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        retrievalRecoveryCard(next, this.deps.callbackSecret),
+      );
     } else if (parsed.action === "retry_later") {
       const result = await this.deps.service.scheduleRetry(state, query.id);
       const next = await this.transition(state, "blocked", {
@@ -927,7 +1145,36 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       actor.chatId,
       actor.userId,
     );
-    if (!state || state.state !== "awaiting_url") return false;
+    if (!state) return false;
+    if (state.state === "awaiting_evidence") {
+      const chunk = text
+        .normalize("NFC")
+        .replace(/\r\n?/g, "\n")
+        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+        .trim();
+      if (!chunk)
+        throw new TelegramControlError(
+          "invalid_command",
+          "Evidence cannot be blank. Paste text copied from the official page.",
+          400,
+        );
+      const chunks = [...(state.evidenceChunks ?? []), chunk];
+      if (Buffer.byteLength(chunks.join("\n\n"), "utf8") > 20_000)
+        throw new TelegramControlError(
+          "invalid_command",
+          "Evidence is too large. Keep the total under 20,000 bytes and include only the relevant official-page excerpts.",
+          400,
+        );
+      const next = await this.transition(state, "evidence_review", {
+        evidenceChunks: chunks,
+      });
+      await this.deps.adapter.sendFinalReviewCard(
+        actor.chatId,
+        evidenceReviewCard(next, this.deps.callbackSecret),
+      );
+      return true;
+    }
+    if (state.state !== "awaiting_url") return false;
     let proposal: ResearchSourceProposal;
     try {
       proposal = await this.deps.service.inspect(state, text);
@@ -1034,6 +1281,7 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
         | "pendingUrl"
         | "retrievalFailure"
         | "expiresAt"
+        | "evidenceChunks"
       >
     > = {},
   ) {
@@ -1113,12 +1361,53 @@ function retrievalRecoveryCard(state: ResearchRemediation, secret: string) {
     topicId: state.topicId,
     text: `<b>Official source could not be retrieved</b>\nReason: ${escape(failure.code)}\nReference: ${escape(failure.diagnosticId)}${failure.retryAt ? `\nHost cooldown until: ${escape(failure.retryAt)}` : ""}\n\nThe topic remains blocked and no source was added.`,
     buttons: [
+      [button("Provide source evidence", "provide_evidence", state, secret)],
       ...(retryable
         ? [[button("Retry later", "retry_later", state, secret)]]
         : []),
       [button("Find another official source", "find_official", state, secret)],
       [button("Paste another URL", "paste_another", state, secret)],
       [button("Cancel source attempt", "cancel", state, secret)],
+    ],
+  };
+}
+
+function evidenceInputCard(
+  state: ResearchRemediation,
+  canonicalUrl: string,
+  secret: string,
+) {
+  return {
+    topicId: state.topicId,
+    text: `<b>Provide official source evidence</b>\nCanonical source: ${escape(canonicalUrl)}\n\nPaste one relevant text excerpt copied from that exact official page. You can add more chunks before review. Text is treated as inert evidence and is limited to 20,000 bytes. This request is actor-scoped and expires at ${escape(state.expiresAt)}.`,
+    buttons: [
+      [button("Cancel evidence entry", "cancel_evidence", state, secret)],
+    ],
+  };
+}
+
+function evidenceReviewCard(state: ResearchRemediation, secret: string) {
+  const text = (state.evidenceChunks ?? []).join("\n\n");
+  const evidenceHash = hash(text);
+  return {
+    topicId: state.topicId,
+    text: `<b>Evidence received</b>\nChunks: ${state.evidenceChunks?.length ?? 0}\nCharacters: ${text.length}\nSHA-256: ${evidenceHash.slice(0, 16)}…\n\nThe text is not accepted as primary evidence until you review and explicitly confirm provenance.`,
+    buttons: [
+      [button("Add more evidence", "add_more_evidence", state, secret)],
+      [button("Review evidence", "review_evidence", state, secret)],
+      [button("Cancel evidence entry", "cancel_evidence", state, secret)],
+    ],
+  };
+}
+
+function provenanceCard(state: ResearchRemediation, secret: string) {
+  return {
+    topicId: state.topicId,
+    text: `<b>Confirm provenance</b>\nCanonical source: ${escape(state.pendingUrl ?? "missing")}\n\nBy confirming, you attest: “I copied this evidence from the official publisher page shown above.”\n\nThe audit record will label acquisition as human-assisted and preserve the original ${escape(state.retrievalFailure?.code ?? "retrieval")} diagnostic.`,
+    buttons: [
+      [button("Confirm provenance", "confirm_provenance", state, secret)],
+      [button("Add more evidence", "add_more_evidence", state, secret)],
+      [button("Cancel evidence entry", "cancel_evidence", state, secret)],
     ],
   };
 }
@@ -1212,6 +1501,11 @@ function createCallback(
     retry_later: "t",
     find_official: "f",
     paste_another: "u",
+    provide_evidence: "e",
+    add_more_evidence: "m",
+    review_evidence: "v",
+    confirm_provenance: "y",
+    cancel_evidence: "n",
   }[action];
   const payload = `q:${code}:${shortId}:${version}`;
   return `${payload}:${sign(payload, secret)}`;
@@ -1245,7 +1539,9 @@ function parseCallback(value: string, secret: string, actor: TelegramActor) {
     };
   }
   const match =
-    /^q:([ahcxkpidtfu]):([a-f0-9]{12}):(\d+):([A-Za-z0-9_-]{10})$/.exec(value);
+    /^q:([ahcxkpidtfuemvyn]):([a-f0-9]{12}):(\d+):([A-Za-z0-9_-]{10})$/.exec(
+      value,
+    );
   if (!match) throw new RemediationCallbackError("malformed");
   const [, code, shortId, rawVersion, provided] = match;
   const payload = `q:${code}:${shortId}:${rawVersion}`;
@@ -1263,6 +1559,11 @@ function parseCallback(value: string, secret: string, actor: TelegramActor) {
     t: "retry_later",
     f: "find_official",
     u: "paste_another",
+    e: "provide_evidence",
+    m: "add_more_evidence",
+    v: "review_evidence",
+    y: "confirm_provenance",
+    n: "cancel_evidence",
   }[code ?? ""];
   if (!action) throw new RemediationCallbackError("unregistered_action");
   return {
@@ -1327,6 +1628,12 @@ function conciseReason(value: string) {
 
 function hash(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function operatorHash(actor: TelegramActor, secret: string) {
+  return createHmac("sha256", secret)
+    .update(`research-evidence-operator:${actor.chatId}:${actor.userId}`)
+    .digest("hex");
 }
 
 function escape(value: string) {

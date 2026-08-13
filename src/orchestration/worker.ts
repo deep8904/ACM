@@ -262,6 +262,7 @@ export class AutomationWorker {
       sources: repositories.sources,
       cache: repositories.cache,
       extensions: repositories.extensions,
+      humanEvidence: repositories.humanEvidence,
       catalog: this.composition.catalog,
       config,
       workerId: this.workerId,
@@ -721,6 +722,7 @@ export class AutomationWorker {
       sources: this.composition.research.sources,
       cache: this.composition.research.cache,
       extensions: this.composition.research.extensions,
+      humanEvidence: this.composition.research.humanEvidence,
       catalog: this.composition.catalog,
       config,
     });

@@ -11,6 +11,8 @@ import {
 import type {
   AssistedResearchImportRepository,
   ApprovedEventRepository,
+  HumanAssistedEvidenceRecord,
+  HumanAssistedEvidenceRepository,
   ResearchCacheRepository,
   ResearchJobRepository,
   ResearchPacketRepository,
@@ -392,6 +394,51 @@ export class FileResearchSourceExtensionRepository implements ResearchSourceExte
       if (!sourceExisted) await rm(sourceDir, { recursive: true, force: true });
       throw error;
     }
+  }
+}
+
+export class FileHumanAssistedEvidenceRepository implements HumanAssistedEvidenceRepository {
+  private packets: FileResearchPacketRepository;
+  private sources: FileResearchSourceRepository;
+  constructor(private root: string) {
+    this.packets = new FileResearchPacketRepository(root);
+    this.sources = new FileResearchSourceRepository(root);
+  }
+  async persist(
+    base: ResearchPacket,
+    packet: ResearchPacket,
+    source: ResearchSource,
+    evidence: HumanAssistedEvidenceRecord,
+  ) {
+    const evidencePath = join(
+      this.root,
+      "evidence",
+      safe(evidence.topicId),
+      `${safe(evidence.id)}.json`,
+    );
+    const existing = await optional(
+      evidencePath,
+      z.object({ packetVersion: z.number().int().positive() }),
+    );
+    if (existing)
+      return (await this.packets.get(
+        evidence.topicId,
+        existing.packetVersion,
+      ))!;
+    const latest = await this.packets.get(base.topicId);
+    if (!latest || latest.version !== base.version)
+      throw new Error("Research packet advanced during evidence acceptance");
+    const value = researchPacketSchema.parse({
+      ...packet,
+      version: await this.packets.nextVersion(base.topicId),
+    });
+    await this.sources.save(source, evidence.evidenceText);
+    await this.packets.save(value);
+    await writeAtomicJson(evidencePath, {
+      ...evidence,
+      packetVersion: value.version,
+    });
+    return value;
   }
 }
 export class FileAssistedResearchImportRepository implements AssistedResearchImportRepository {

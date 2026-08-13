@@ -31,6 +31,7 @@ export const CRITICAL_TABLES = [
   "research_remediation_events",
   "research_retrieval_host_state",
   "research_retrieval_outcomes",
+  "research_source_evidence_records",
 ] as const;
 
 export interface DatabaseHealth {

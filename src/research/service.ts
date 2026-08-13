@@ -9,6 +9,7 @@ import { contentHash, extractDocument } from "./extract";
 import { GitHubJsonContentExtractor } from "./github-adapter";
 import type {
   ApprovedEventRepository,
+  HumanAssistedEvidenceRepository,
   ResearchJobRepository,
   ResearchPacketRepository,
   ResearchCacheRepository,
@@ -44,6 +45,7 @@ export class ResearchService {
       packets: ResearchPacketRepository;
       cache?: ResearchCacheRepository;
       extensions?: ResearchSourceExtensionRepository;
+      humanEvidence?: HumanAssistedEvidenceRepository;
       catalog: TopicCatalog;
       config: ResearchConfig;
       fetch?: ResearchFetch;
@@ -328,6 +330,256 @@ export class ResearchService {
       artifact.source,
       artifact.text,
     );
+  }
+  async verifyHumanAssistedPrimarySource(topicId: string, url: string) {
+    const canonicalUrl = await validateManualUrl(url, this.deps.lookup);
+    const base = await this.deps.packets.get(topicId);
+    if (!base) throw new Error("Research packet not found");
+    await this.assertActiveExtensionGate(base, topicId);
+    const publisherOwner = ownerForHost(new URL(canonicalUrl).hostname);
+    if (!ownershipMatchesTopic(base, publisherOwner))
+      throw new Error(
+        "Human-assisted primary evidence is limited to a verified official publisher URL for this topic",
+      );
+    const sourceType = inferExtensionType(canonicalUrl);
+    if (!primarySourceTypes.has(sourceType))
+      throw new Error("This official URL type cannot be classified as primary");
+    return {
+      canonicalUrl,
+      publisherOwner,
+      publisher: publisherForOwner(publisherOwner),
+      sourceType,
+    };
+  }
+
+  async acceptHumanAssistedEvidence(input: {
+    topicId: string;
+    remediationId: string;
+    eventId: string;
+    jobId: string;
+    url: string;
+    evidenceText: string;
+    operatorActorHash: string;
+    provenanceStatement: string;
+    originalFailureCode:
+      | "429_retry_after"
+      | "429_cooldown"
+      | "robots_denied"
+      | "403_forbidden"
+      | "retrieval";
+    originalDiagnosticId: string;
+  }) {
+    const request = z
+      .object({
+        topicId: z.string().min(1),
+        remediationId: z.string().regex(/^remediation_[a-f0-9]{24}$/),
+        eventId: z.string().regex(/^event_[a-f0-9]{24}$/),
+        jobId: z.string().regex(/^automationjob_[a-f0-9]{24}$/),
+        url: z.string().min(1).max(2048),
+        evidenceText: z.string().min(1).max(20_000),
+        operatorActorHash: z.string().regex(/^[a-f0-9]{64}$/),
+        provenanceStatement: z.string().min(1).max(500),
+        originalFailureCode: z.enum([
+          "429_retry_after",
+          "429_cooldown",
+          "robots_denied",
+          "403_forbidden",
+          "retrieval",
+        ]),
+        originalDiagnosticId: z.string().regex(/^diag_[a-f0-9]{16}$/),
+      })
+      .strict()
+      .parse(input);
+    const evidenceText = normalizeHumanEvidence(request.evidenceText);
+    if (Buffer.byteLength(evidenceText, "utf8") > 20_000)
+      throw new HumanEvidenceValidationError(
+        "Evidence is too large. Keep the total under 20,000 bytes.",
+      );
+    if (evidenceText.length < 120 || evidenceText.split(/\s+/).length < 20)
+      throw new HumanEvidenceValidationError(
+        "Please provide at least 20 words and 120 characters copied from the official page so claims can be validated.",
+      );
+    if (!this.deps.humanEvidence)
+      throw new Error("Human-assisted evidence repository is not configured");
+    const official = await this.verifyHumanAssistedPrimarySource(
+      request.topicId,
+      request.url,
+    );
+    const base = await this.deps.packets.get(request.topicId);
+    if (!base || base.approvedEventId !== request.eventId)
+      throw new Error("Evidence does not match the immutable topic event");
+    const now = (this.deps.now ?? (() => new Date()))().toISOString();
+    const evidenceHash = createHash("sha256")
+      .update(evidenceText)
+      .digest("hex");
+    const evidenceRecordId = stable(
+      "evidence",
+      `${request.remediationId}:${evidenceHash}`,
+    );
+    const excerpts = humanEvidenceExcerpts(
+      request.topicId,
+      evidenceRecordId,
+      evidenceText,
+    );
+    const source = researchSourceSchema.parse({
+      id: stable(
+        "source",
+        `${request.topicId}:${official.canonicalUrl}:human:${evidenceHash}`,
+      ),
+      topicId: request.topicId,
+      originalUrl: official.canonicalUrl,
+      canonicalUrl: official.canonicalUrl,
+      finalUrl: official.canonicalUrl,
+      title: `Operator-supplied evidence from ${official.publisher}`,
+      publisher: official.publisher,
+      publisherGroup: official.publisherOwner,
+      publisherOwner: official.publisherOwner,
+      sourceType: official.sourceType,
+      authority: "primary",
+      isPrimary: true,
+      retrievedAt: now,
+      contentType: "text/plain; acquisition=human-assisted",
+      language: "en",
+      contentHash: evidenceHash,
+      extractionMethod: "human_evidence",
+      extractionStatus: "extracted",
+      extractionQuality: excerpts.length >= 3 ? "high" : "medium",
+      qualityMetrics: {
+        wordCount: evidenceText.split(/\s+/).length,
+        paragraphCount: excerpts.length,
+        headingCount: 0,
+        metadataFields: 5,
+      },
+      wordCount: evidenceText.split(/\s+/).length,
+      summary: evidenceText.slice(0, 500),
+      selectedExcerpts: excerpts,
+      licenseNotes:
+        "Operator attested that this evidence was copied from the canonical official page; stored for research provenance only.",
+      warnings: [
+        "Human-assisted primary evidence; not automatically retrieved",
+        `Original retrieval failure: ${request.originalFailureCode} (${request.originalDiagnosticId})`,
+      ],
+      rawMetadata: {
+        acquisitionMode: "human_assisted_primary_evidence",
+        evidenceRecordId,
+      },
+      acquisitionMode: "human_assisted_primary_evidence",
+      evidenceRecordId,
+      operatorActorHash: request.operatorActorHash,
+      originalRetrievalFailure: {
+        code: request.originalFailureCode,
+        diagnosticId: request.originalDiagnosticId,
+      },
+    });
+    const withoutFailedCanonical = base.sourceIndex.filter(
+      (candidate) =>
+        normalizeUrl(candidate.canonicalUrl) !== official.canonicalUrl ||
+        candidate.extractionStatus === "extracted",
+    );
+    if (withoutFailedCanonical.length >= this.deps.config.maxSources)
+      throw new HumanEvidenceValidationError(
+        "The research packet has reached its source cap. Remove no history; provide another official source only after a new remediation packet is created.",
+      );
+    const sources = limitExcerpts(
+      [...withoutFailedCanonical, source],
+      this.deps.config.totalExcerptChars,
+    );
+    const deterministic = analyze(request.topicId, sources, now, {
+      ...this.deps.config,
+      mode: "deterministic",
+    });
+    const priorBlocking = base.blockingReasons.filter(
+      (reason) =>
+        !/^No primary source (?:could be retrieved|was provided)$/i.test(
+          reason,
+        ) && !/^No supported factual claims were extracted$/i.test(reason),
+    );
+    const blockingReasons = uniqueStrings([
+      ...priorBlocking,
+      ...deterministic.blockingReasons,
+    ]);
+    const next = researchPacketSchema.parse({
+      ...base,
+      version: base.version + 1,
+      updatedAt: now,
+      status: "awaiting_assisted_synthesis",
+      researchMode: "deterministic",
+      facts: uniqueById([...base.facts, ...deterministic.claims]),
+      timeline: uniqueById([...base.timeline, ...deterministic.timeline]),
+      conflicts: uniqueById([...base.conflicts, ...deterministic.conflicts]),
+      sourceIndex: sources,
+      primarySourceIds: sources
+        .filter((candidate) => candidate.isPrimary)
+        .map((candidate) => candidate.id),
+      sufficient: false,
+      blockingReasons,
+      warnings: uniqueStrings([...base.warnings, ...source.warnings]),
+      contentHashes: uniqueStrings(
+        sources.map((candidate) => candidate.contentHash),
+      ),
+      researchConfidence: Math.min(1, deterministic.sufficiency.score / 100),
+      researchSufficiency: deterministic.sufficiency,
+      provenance: {
+        deterministic: true,
+        promptVersion: base.provenance.promptVersion,
+        sourcePacketVersion: base.version,
+        humanAssistedEvidence: {
+          evidenceRecordId,
+          acquisitionMode: "human_assisted_primary_evidence",
+          canonicalUrl: official.canonicalUrl,
+          publisherOwner: official.publisherOwner,
+          operatorActorHash: request.operatorActorHash,
+          evidenceHash,
+          confirmedAt: now,
+          originalRetrievalFailure: {
+            code: request.originalFailureCode,
+            diagnosticId: request.originalDiagnosticId,
+          },
+        },
+      },
+    });
+    return this.deps.humanEvidence.persist(base, next, source, {
+      id: evidenceRecordId,
+      remediationId: request.remediationId,
+      topicId: request.topicId,
+      eventId: request.eventId,
+      jobId: request.jobId,
+      basePacketVersion: base.version,
+      packetVersion: base.version + 1,
+      sourceId: source.id,
+      sourceContentHash: source.contentHash,
+      canonicalUrl: official.canonicalUrl,
+      publisherOwner: official.publisherOwner,
+      acquisitionMode: "human_assisted_primary_evidence",
+      operatorActorHash: request.operatorActorHash,
+      evidenceHash,
+      evidenceText,
+      provenanceStatement: request.provenanceStatement,
+      originalDiagnosticId: request.originalDiagnosticId,
+      originalFailureCode: request.originalFailureCode,
+      confirmedAt: now,
+    });
+  }
+
+  private async assertActiveExtensionGate(
+    base: ResearchPacket,
+    topicId: string,
+  ) {
+    const event = await this.deps.events.get(base.approvedEventId);
+    const queue = await this.deps.events.queue(topicId);
+    if (
+      !event ||
+      event.status !== "ready" ||
+      event.topicId !== topicId ||
+      !queue ||
+      queue.approvalStatus !== "approved" ||
+      !["ready_for_research", "awaiting_source"].includes(
+        queue.researchReadiness,
+      ) ||
+      (await this.deps.events.isCancelled(event)) ||
+      !(await this.deps.events.isConsumed(event.id))
+    )
+      throw new Error("Topic approval gate is not active");
   }
   async findOfficialAlternatives(input: { topicId: string; url: string }) {
     const canonicalUrl = await validateManualUrl(input.url, this.deps.lookup);
@@ -1140,6 +1392,46 @@ export class ResearchSourceInspectionError extends Error {
     super(message);
     this.name = "ResearchSourceInspectionError";
   }
+}
+
+export class HumanEvidenceValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "HumanEvidenceValidationError";
+  }
+}
+
+function normalizeHumanEvidence(value: string) {
+  return value
+    .normalize("NFC")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function humanEvidenceExcerpts(
+  topicId: string,
+  evidenceRecordId: string,
+  evidenceText: string,
+) {
+  const paragraphs = evidenceText
+    .split(/\n{2,}|(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const chunks: string[] = [];
+  for (const paragraph of paragraphs) {
+    for (let offset = 0; offset < paragraph.length; offset += 500)
+      chunks.push(paragraph.slice(offset, offset + 500));
+    if (chunks.length >= 8) break;
+  }
+  return chunks.slice(0, 8).map((text, index) => ({
+    id: stable("excerpt", `${topicId}:${evidenceRecordId}:${index}:${text}`),
+    text,
+    locator: `Human evidence record ${evidenceRecordId}, excerpt ${index + 1}`,
+    purpose: "Operator-supplied excerpt from the canonical official page",
+  }));
 }
 
 function ownerForHost(hostname: string) {

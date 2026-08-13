@@ -45,11 +45,12 @@ describe("free hosted scheduler configuration", () => {
     });
     expect(jobs.drain.steps).toContainEqual({
       name: "Reconcile and drain durable work",
+      if: "${{ github.event_name != 'workflow_dispatch' || inputs.migration_only != true }}",
       run: "npm run automation:worker",
     });
     expect(jobs.drain.steps).toContainEqual({
       name: "Audit requested research lineage",
-      if: "${{ github.event_name == 'workflow_dispatch' && (inputs.audit_event_ids != '' || inputs.audit_job_ids != '') }}",
+      if: "${{ github.event_name == 'workflow_dispatch' && inputs.migration_only != true && (inputs.audit_event_ids != '' || inputs.audit_job_ids != '') }}",
       env: {
         AUDIT_EVENT_IDS: "${{ inputs.audit_event_ids }}",
         AUDIT_JOB_IDS: "${{ inputs.audit_job_ids }}",
