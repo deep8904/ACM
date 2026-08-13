@@ -263,6 +263,45 @@ export function scheduledDiscoveryJob(
   };
 }
 
+export function manualDiscoveryJob(input: {
+  testId: string;
+  windowStart: string;
+  windowEnd: string;
+}): EnqueueAutomationJob {
+  const testId = input.testId.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_-]{3,47}$/.test(testId))
+    throw new Error(
+      "Manual discovery test ID must be 4-48 lowercase letters, numbers, underscores, or hyphens",
+    );
+  const windowStart = new Date(input.windowStart);
+  const windowEnd = new Date(input.windowEnd);
+  if (
+    !Number.isFinite(windowStart.getTime()) ||
+    !Number.isFinite(windowEnd.getTime()) ||
+    windowStart.getTime() >= windowEnd.getTime()
+  )
+    throw new Error("Manual discovery requires a valid increasing time window");
+  if (windowEnd.getTime() - windowStart.getTime() > 14 * 24 * 60 * 60_000)
+    throw new Error("Manual discovery window cannot exceed 14 days");
+
+  const normalizedStart = windowStart.toISOString();
+  const normalizedEnd = windowEnd.toISOString();
+  return {
+    type: "discovery",
+    idempotencyKey: hash(`manual-discovery:${testId}`),
+    lineageKey: `manual-discovery:${testId}`,
+    payload: {
+      runId: `run_${testId}_manual_test`,
+      scheduled: false,
+      manual: true,
+      test: true,
+      testId,
+      windowStart: normalizedStart,
+      windowEnd: normalizedEnd,
+    },
+  };
+}
+
 export function automationKey(value: string) {
   return hash(value);
 }

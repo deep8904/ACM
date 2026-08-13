@@ -115,6 +115,7 @@ export class PostgresAutomationJobRepository {
         throw new Error("Automation job lease was lost before completion");
       if (
         row.job_type === "discovery" &&
+        row.payload.scheduled === true &&
         typeof row.payload.windowStart === "string" &&
         typeof row.payload.windowEnd === "string" &&
         typeof row.payload.runId === "string"

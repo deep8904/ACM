@@ -2,7 +2,7 @@ import { pathToFileURL } from "node:url";
 
 import { createRepositoryComposition } from "../storage/composition";
 import { productionReadiness } from "./readiness";
-import { reconcileAutomationQueue } from "./reconcile";
+import { manualDiscoveryJob, reconcileAutomationQueue } from "./reconcile";
 import { PostgresAutomationJobRepository } from "./repository";
 import { runAutomationWorker } from "./worker";
 import { auditProductionResearch } from "./production-audit";
@@ -22,6 +22,20 @@ export async function main(args: string[]) {
       console.log(
         JSON.stringify(
           await reconcileAutomationQueue(composition.sql, jobs),
+          null,
+          2,
+        ),
+      );
+    else if (command === "manual-discovery")
+      console.log(
+        JSON.stringify(
+          await jobs.enqueue(
+            manualDiscoveryJob({
+              testId: requiredEnvironment("MANUAL_DISCOVERY_TEST_ID"),
+              windowStart: requiredEnvironment("MANUAL_DISCOVERY_WINDOW_START"),
+              windowEnd: requiredEnvironment("MANUAL_DISCOVERY_WINDOW_END"),
+            }),
+          ),
           null,
           2,
         ),
@@ -65,6 +79,12 @@ export async function main(args: string[]) {
 
 function required(value: string | undefined) {
   if (!value) throw new Error("A job ID is required");
+  return value;
+}
+
+function requiredEnvironment(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required`);
   return value;
 }
 

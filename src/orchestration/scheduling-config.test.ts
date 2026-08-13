@@ -4,7 +4,7 @@ import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
 
 import { evaluateAutomationHeartbeats } from "./readiness";
-import { scheduledDiscoveryJob } from "./reconcile";
+import { manualDiscoveryJob, scheduledDiscoveryJob } from "./reconcile";
 import { currentDiscoverySlot, nextDiscoverySlot } from "./discovery-schedule";
 import type { SystemHeartbeat } from "./models";
 
@@ -37,12 +37,30 @@ describe("free hosted scheduler configuration", () => {
 
     expect(triggers.schedule).toEqual([{ cron: "*/15 * * * *" }]);
     expect(triggers).toHaveProperty("workflow_dispatch");
+    expect(triggers.workflow_dispatch).toMatchObject({
+      inputs: {
+        manual_discovery: { default: false, type: "boolean" },
+        manual_test_id: { type: "string" },
+        manual_window_start: { type: "string" },
+        manual_window_end: { type: "string" },
+      },
+    });
     expect(concurrency).toEqual({
       group: "ai-content-machine-production-worker",
       "cancel-in-progress": false,
     });
     expect(jobs.drain.steps).toContainEqual({
       run: "npm ci --include=dev",
+    });
+    expect(jobs.drain.steps).toContainEqual({
+      name: "Enqueue isolated manual test discovery",
+      if: "${{ github.event_name == 'workflow_dispatch' && inputs.migration_only != true && inputs.manual_discovery == true }}",
+      env: {
+        MANUAL_DISCOVERY_TEST_ID: "${{ inputs.manual_test_id }}",
+        MANUAL_DISCOVERY_WINDOW_START: "${{ inputs.manual_window_start }}",
+        MANUAL_DISCOVERY_WINDOW_END: "${{ inputs.manual_window_end }}",
+      },
+      run: "npm run automation:manual-discovery",
     });
     expect(jobs.drain.steps).toContainEqual({
       name: "Reconcile and drain durable work",
@@ -94,6 +112,43 @@ describe("free hosted scheduler configuration", () => {
         windowEnd: "2026-08-13T16:00:00.000Z",
       },
     });
+  });
+
+  it("creates an isolated idempotent manual test window", () => {
+    const job = manualDiscoveryJob({
+      testId: "v1-e2e-20260813t1635z",
+      windowStart: "2026-08-06T16:35:00.000Z",
+      windowEnd: "2026-08-13T16:35:00.000Z",
+    });
+
+    expect(job).toMatchObject({
+      type: "discovery",
+      lineageKey: "manual-discovery:v1-e2e-20260813t1635z",
+      payload: {
+        runId: "run_v1-e2e-20260813t1635z_manual_test",
+        scheduled: false,
+        manual: true,
+        test: true,
+        testId: "v1-e2e-20260813t1635z",
+        windowStart: "2026-08-06T16:35:00.000Z",
+        windowEnd: "2026-08-13T16:35:00.000Z",
+      },
+    });
+    expect(
+      manualDiscoveryJob({
+        testId: "v1-e2e-20260813t1635z",
+        windowStart: "2026-08-06T16:35:00.000Z",
+        windowEnd: "2026-08-13T16:35:00.000Z",
+      }).idempotencyKey,
+    ).toBe(job.idempotencyKey);
+  });
+
+  it("updates the scheduled cursor only for explicitly scheduled discovery", async () => {
+    const source = await readFile(
+      `${root}/src/orchestration/repository.ts`,
+      "utf8",
+    );
+    expect(source).toContain("row.payload.scheduled === true");
   });
 
   it("uses a fresh GitHub Actions scheduler heartbeat for readiness", () => {
