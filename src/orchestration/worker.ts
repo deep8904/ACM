@@ -417,7 +417,7 @@ export class AutomationWorker {
       jobId: job.id,
       stage: "writing",
       system:
-        "Write one complete source-grounded article. Use citation markers exactly as required. Keep facts, analysis, opinion, and predictions distinct. Do not claim hands-on experience.",
+        "Write one complete source-grounded article. Use citation markers exactly as required. Every claimReferences[].section must exactly match an H2-H4 heading in mdx. Attach a source to a claim reference only when that research claim lists the source in its sourceIds. Keep facts, analysis, opinion, and predictions distinct. Do not claim hands-on experience.",
       task: withSchema(task, articleWritingResultSchema, {
         taskHash: prepared.job.taskHash,
       }),
