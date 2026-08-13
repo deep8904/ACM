@@ -7,8 +7,8 @@ export type LogLevel = (typeof logLevels)[number];
 export interface LogContext {
   runId?: string;
   stage: string;
-  topicId?: string;
-  articleId?: string;
+  topicId?: string | null;
+  articleId?: string | null;
   provider?: string;
   durationMs?: number;
   attempt?: number;

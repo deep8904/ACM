@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { z } from "zod";
 
 import type { DatabaseClient } from "../database/client";
 import {
@@ -11,6 +12,37 @@ import { PostgresAutomationJobRepository } from "./repository";
 import { discoveryScheduleStatus } from "./discovery-schedule";
 
 type AutomationEnqueuer = Pick<PostgresAutomationJobRepository, "enqueue">;
+
+const manualDiscoveryInputSchema = z
+  .object({
+    testId: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[a-z0-9][a-z0-9_-]{3,47}$/, {
+        message:
+          "Manual discovery test ID must be 4-48 lowercase letters, numbers, underscores, or hyphens",
+      }),
+    windowStart: z.coerce.date(),
+    windowEnd: z.coerce.date(),
+  })
+  .superRefine((input, context) => {
+    if (input.windowStart.getTime() >= input.windowEnd.getTime())
+      context.addIssue({
+        code: "custom",
+        path: ["windowEnd"],
+        message: "Manual discovery requires a valid increasing time window",
+      });
+    if (
+      input.windowEnd.getTime() - input.windowStart.getTime() >
+      14 * 24 * 60 * 60_000
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["windowEnd"],
+        message: "Manual discovery window cannot exceed 14 days",
+      });
+  });
 
 export async function reconcileAutomationQueue(
   sql: DatabaseClient,
@@ -259,6 +291,32 @@ export function scheduledDiscoveryJob(
       scheduled: true,
       windowStart: schedule.currentWindowStart,
       windowEnd: schedule.currentWindowEnd,
+    },
+  };
+}
+
+export function manualDiscoveryJob(input: {
+  testId: string;
+  windowStart: string;
+  windowEnd: string;
+}): EnqueueAutomationJob {
+  const { testId, windowStart, windowEnd } =
+    manualDiscoveryInputSchema.parse(input);
+
+  const normalizedStart = windowStart.toISOString();
+  const normalizedEnd = windowEnd.toISOString();
+  return {
+    type: "discovery",
+    idempotencyKey: hash(`manual-discovery:${testId}`),
+    lineageKey: `manual-discovery:${testId}`,
+    payload: {
+      runId: `run_${testId}_manual_test`,
+      scheduled: false,
+      manual: true,
+      test: true,
+      testId,
+      windowStart: normalizedStart,
+      windowEnd: normalizedEnd,
     },
   };
 }

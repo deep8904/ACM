@@ -10,6 +10,23 @@ on:
         required: false
         default: false
         type: boolean
+      manual_discovery:
+        description: "Enqueue one isolated, idempotent manual/test discovery without advancing the scheduled cursor"
+        required: false
+        default: false
+        type: boolean
+      manual_test_id:
+        description: "Stable lowercase identity for the manual/test run"
+        required: false
+        type: string
+      manual_window_start:
+        description: "Inclusive ISO-8601 start of the isolated manual/test window"
+        required: false
+        type: string
+      manual_window_end:
+        description: "Exclusive ISO-8601 end of the isolated manual/test window"
+        required: false
+        type: string
       audit_event_ids:
         description: "Optional comma-separated approved-event IDs for a redacted read-only audit"
         required: false
@@ -73,6 +90,13 @@ jobs:
           AUDIT_EVENT_IDS: ${{ inputs.audit_event_ids }}
           AUDIT_JOB_IDS: ${{ inputs.audit_job_ids }}
         run: npm run automation:audit
+      - name: Enqueue isolated manual test discovery
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.migration_only != true && inputs.manual_discovery == true }}
+        env:
+          MANUAL_DISCOVERY_TEST_ID: ${{ inputs.manual_test_id }}
+          MANUAL_DISCOVERY_WINDOW_START: ${{ inputs.manual_window_start }}
+          MANUAL_DISCOVERY_WINDOW_END: ${{ inputs.manual_window_end }}
+        run: npm run automation:manual-discovery
       - name: Reconcile and drain durable work
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.migration_only != true }}
         run: npm run automation:worker

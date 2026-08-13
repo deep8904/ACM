@@ -98,6 +98,7 @@
     "production:readiness": "tsx src/database/readiness-cli.ts",
     "automation:worker": "tsx src/orchestration/cli.ts drain",
     "automation:reconcile": "tsx src/orchestration/cli.ts reconcile",
+    "automation:manual-discovery": "tsx src/orchestration/cli.ts manual-discovery",
     "automation:status": "tsx src/orchestration/cli.ts status",
     "automation:retry": "tsx src/orchestration/cli.ts retry",
     "automation:cancel": "tsx src/orchestration/cli.ts cancel",
