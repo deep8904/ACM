@@ -531,9 +531,17 @@ export class AutomationWorker {
       jobId: job.id,
       stage: "revision",
       system:
-        "Apply only the requested revision scope. Preserve protected claims and required source IDs. Return the complete revised MDX body when body changes are allowed.",
+        "Apply only the requested revision scope. Copy topicId, sourceDraftId, sourceDraftVersion, and revisionScope exactly from the task; set provenance.taskHash to requiredTaskHash exactly. Preserve protected claims and required source IDs. Return the complete revised MDX body when body changes are allowed.",
       task: withSchema(task, revisionResultSchema, {
         requiredTaskHash: taskHash,
+        requiredIdentity: {
+          topicId: (task as { topicId?: string }).topicId,
+          sourceDraftId: (task as { sourceDraftId?: string }).sourceDraftId,
+          sourceDraftVersion: (task as { sourceDraftVersion?: number })
+            .sourceDraftVersion,
+          revisionScope: (task as { request?: { scope?: string } }).request
+            ?.scope,
+        },
       }),
       schema: revisionResultSchema,
     });
