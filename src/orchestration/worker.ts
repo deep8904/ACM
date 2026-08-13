@@ -693,16 +693,12 @@ export class AutomationWorker {
 
   private async notifyExistingResearchBlocks() {
     if (!this.composition.sql) return 0;
-    const blocked = (await this.jobs.list(["blocked"], 100)).filter(
-      (job) =>
-        job.type === "research" &&
-        (/primary source/i.test(job.failureSummary ?? "") ||
-          typeof job.payload.remediationId === "string"),
-    );
-    if (!blocked.length) return 0;
-    const { controller, repository } = await this.remediationController();
+    const { controller, repository, service } =
+      await this.remediationController();
+    const actionable = await service.listActionableBlocked();
+    if (!actionable.length) return 0;
     let sent = 0;
-    for (const job of blocked)
+    for (const { job } of actionable)
       for (const [
         index,
         chatId,
@@ -750,16 +746,17 @@ export class AutomationWorker {
       catalog: this.composition.catalog,
       config,
     });
+    const service = new ResearchRemediationService({
+      remediation: repository,
+      research,
+      packets: this.composition.research.packets,
+      events: this.composition.research.events,
+      topics: this.composition.telegram,
+      jobs: this.jobs,
+      ttlMinutes: this.telegramConfig.TELEGRAM_CONVERSATION_TTL_MINUTES,
+    });
     const controller = new ResearchRemediationTelegramController({
-      service: new ResearchRemediationService({
-        remediation: repository,
-        research,
-        packets: this.composition.research.packets,
-        events: this.composition.research.events,
-        topics: this.composition.telegram,
-        jobs: this.jobs,
-        ttlMinutes: this.telegramConfig.TELEGRAM_CONVERSATION_TTL_MINUTES,
-      }),
+      service,
       repository,
       adapter: this.telegram,
       callbackSecret: researchRemediationCallbackSecret(
@@ -770,7 +767,7 @@ export class AutomationWorker {
       },
       refreshTopics: async () => undefined,
     });
-    return { controller, repository };
+    return { controller, repository, service };
   }
 }
 
