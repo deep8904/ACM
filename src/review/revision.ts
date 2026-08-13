@@ -183,16 +183,20 @@ export class RevisionService {
       await this.deps.tasks.readInput(topicId, draftVersion),
     );
     const taskHash = sha256(`${JSON.stringify(task, null, 2)}\n`);
-    if (
-      result.topicId !== topicId ||
-      result.sourceDraftId !== source.id ||
-      result.sourceDraftVersion !== draftVersion ||
-      result.revisionScope !== request.scope ||
-      result.provenance.taskHash !== taskHash ||
-      task.articleHash !== sha256(JSON.stringify(source)) ||
-      task.researchContentHashes.join() !== packet.contentHashes.join()
-    )
-      throw new Error("Revision identity, scope, or task provenance mismatch");
+    const provenanceMismatches = [
+      result.topicId !== topicId && "topicId",
+      result.sourceDraftId !== source.id && "sourceDraftId",
+      result.sourceDraftVersion !== draftVersion && "sourceDraftVersion",
+      result.revisionScope !== request.scope && "revisionScope",
+      result.provenance.taskHash !== taskHash && "taskHash",
+      task.articleHash !== sha256(JSON.stringify(source)) && "articleHash",
+      task.researchContentHashes.join() !== packet.contentHashes.join() &&
+        "researchContentHashes",
+    ].filter((value): value is string => Boolean(value));
+    if (provenanceMismatches.length)
+      throw new Error(
+        `Revision immutable provenance mismatch: ${provenanceMismatches.join(", ")}`,
+      );
     if (
       !request.issueIds.every((id) => result.addressedIssueIds.includes(id)) ||
       result.unresolvedIssues.some((id) => request.issueIds.includes(id))
