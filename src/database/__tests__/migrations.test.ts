@@ -31,6 +31,7 @@ describe("database migrations", () => {
       "022",
       "023",
       "024",
+      "025",
     ]);
     const sql = migrations.map((item) => item.sql).join("\n");
     expect(sql).toContain("create schema if not exists content_machine");
@@ -89,6 +90,15 @@ describe("database migrations", () => {
     expect(migration?.sql).toContain(
       "failure_summary like '%Invalid ISO datetime%'",
     );
+    expect(migration?.sql).not.toMatch(/delete\s+from/i);
+  });
+  it("repairs malformed topic queue timestamps without deleting history", async () => {
+    const migration = (await loadMigrations()).find(
+      (item) => item.version === "025",
+    );
+    expect(migration?.sql).toContain("content_machine.topic_queue_items");
+    expect(migration?.sql).toContain("at time zone 'UTC'");
+    expect(migration?.sql).toContain("payload->>'updatedAt'");
     expect(migration?.sql).not.toMatch(/delete\s+from/i);
   });
 });

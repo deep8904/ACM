@@ -73,7 +73,7 @@ Private audit data is in the non-exposed Postgres `content_machine` schema:
 - Telegram update and callback replay records
 - editorial interests and their append-only change history
 
-`/system_status` also shows the last successful discovery, current discovery window, and next discovery slot. The 15-minute worker cadence is for continuing research, writing, review, and publication work; it does not increase the twice-weekly discovery cadence.
+`/system_status` also shows the last successful discovery, current discovery window, and next discovery slot. The nominal twice-hourly worker wakeups continue research, writing, review, and publication work; delayed wakeups self-heal through reconciliation and do not increase the twice-weekly discovery cadence.
 
 ## Advanced recovery only
 

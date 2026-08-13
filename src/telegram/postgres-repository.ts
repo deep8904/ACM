@@ -381,13 +381,13 @@ export class PostgresTopicApprovalRepository implements TopicApprovalRepository 
     const currentTopicIds = items.map(({ topicId }) => topicId);
     await sql`
       update content_machine.topic_queue_items
-      set approval_status='superseded',version=version+1,updated_at=now(),
+      set approval_status='superseded',version=version+1,updated_at=statement_timestamp(),
         payload=jsonb_set(
           jsonb_set(
             jsonb_set(payload,'{approvalStatus}','"superseded"'::jsonb),
             '{version}',to_jsonb(version+1)
           ),
-          '{updatedAt}',to_jsonb(now()::text)
+          '{updatedAt}',to_jsonb(to_char(statement_timestamp() at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
         )
       where approval_status='pending' and payload->>'origin'='ranked'
         and topic_id not in ${sql(currentTopicIds)}

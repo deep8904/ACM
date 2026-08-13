@@ -19,7 +19,7 @@ describe("free hosted scheduler configuration", () => {
     expect(config.crons ?? []).toEqual([]);
   });
 
-  it("runs the durable worker every 15 minutes and supports manual dispatch", async () => {
+  it("uses redundant offset wakeups and supports manual dispatch", async () => {
     const workflow = parse(
       await readFile(`${root}/.github/workflows/automation-worker.yml`, "utf8"),
     ) as Record<string, unknown>;
@@ -35,7 +35,10 @@ describe("free hosted scheduler configuration", () => {
       drain: { env: Record<string, string>; steps: { run?: string }[] };
     };
 
-    expect(triggers.schedule).toEqual([{ cron: "*/15 * * * *" }]);
+    expect(triggers.schedule).toEqual([
+      { cron: "17 * * * *" },
+      { cron: "47 * * * *" },
+    ]);
     expect(triggers).toHaveProperty("workflow_dispatch");
     expect(triggers.workflow_dispatch).toMatchObject({
       inputs: {
@@ -120,6 +123,27 @@ describe("free hosted scheduler configuration", () => {
     });
   });
 
+  it("self-heals a missed tick without duplicating the discovery slot", () => {
+    const discovery = {
+      currentWindowStart: "2026-08-10T16:00:00.000Z",
+      currentWindowEnd: "2026-08-13T16:00:00.000Z",
+    };
+    const first = scheduledDiscoveryJob(
+      new Date("2026-08-13T16:17:00.000Z"),
+      discovery,
+    );
+    const delayed = scheduledDiscoveryJob(
+      new Date("2026-08-13T18:47:00.000Z"),
+      discovery,
+    );
+
+    expect(delayed.lineageKey).toBe(first.lineageKey);
+    expect(delayed.idempotencyKey).toBe(first.idempotencyKey);
+    expect(delayed.payload).toMatchObject({
+      runId: "run_2026081316_scheduled",
+    });
+  });
+
   it("creates an isolated idempotent manual test window", () => {
     const job = manualDiscoveryJob({
       testId: "v1-e2e-20260813t1635z",
@@ -177,6 +201,27 @@ describe("free hosted scheduler configuration", () => {
     ).toMatchObject({
       scheduler: "stale",
       schedulerSource: "vercel_cron",
+    });
+  });
+
+  it("reports normal hosted jitter without failing readiness and detects an outage", () => {
+    const now = new Date("2026-08-09T15:00:00.000Z");
+    const delayed = [
+      heartbeat("scheduler", "github_actions", "2026-08-09T13:00:00.000Z"),
+      heartbeat("worker", "github_actions", "2026-08-09T13:01:00.000Z"),
+    ];
+    expect(evaluateAutomationHeartbeats(delayed, now)).toMatchObject({
+      scheduler: "degraded",
+      worker: "degraded",
+    });
+
+    const outage = [
+      heartbeat("scheduler", "github_actions", "2026-08-09T11:59:59.000Z"),
+      heartbeat("worker", "github_actions", "2026-08-09T11:59:59.000Z"),
+    ];
+    expect(evaluateAutomationHeartbeats(outage, now)).toMatchObject({
+      scheduler: "stale",
+      worker: "stale",
     });
   });
 });
