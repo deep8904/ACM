@@ -34,6 +34,12 @@ describe("Telegram research remediation", () => {
     const persisted = await harness.repository.getForActor("100", "200");
     expect(callback.split(":")[3]).toBe("1");
     expect(persisted?.version).toBe(1);
+    expect(harness.repository.auditCalls).toContainEqual(
+      expect.objectContaining({
+        action: "operator_notification_delivered",
+        details: { telegramMessageId: 1000, version: 1 },
+      }),
+    );
 
     harness.adapter.calls.length = 0;
     await harness.controller.processCallback(callbackUpdate(callback), actor);
@@ -1151,6 +1157,8 @@ function createActionableHarness(
 
 class MemoryRepository implements ResearchRemediationRepository {
   private value?: ResearchRemediation;
+  readonly auditCalls: Parameters<ResearchRemediationRepository["audit"]>[0][] =
+    [];
   async getByShortId(shortId: string) {
     return this.value?.shortId === shortId ? this.value : undefined;
   }
@@ -1193,7 +1201,7 @@ class MemoryRepository implements ResearchRemediationRepository {
     return saved;
   }
   async audit(input: Parameters<ResearchRemediationRepository["audit"]>[0]) {
-    void input;
+    this.auditCalls.push(input);
   }
 }
 

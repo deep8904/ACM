@@ -200,6 +200,64 @@ export async function auditProductionResearch(
         order by created_at,id
       `
     : [];
+  const remediationConversations = jobIds.length
+    ? await sql<
+        {
+          id: string;
+          short_id: string;
+          topic_id: string;
+          event_id: string;
+          job_id: string;
+          packet_version: number;
+          state: string;
+          reason: string;
+          version: number;
+          expires_at: DateValue;
+          payload: Json;
+          created_at: DateValue;
+          updated_at: DateValue;
+        }[]
+      >`
+        select id,short_id,topic_id,event_id,job_id,packet_version,state,reason,
+          version,expires_at,payload,created_at,updated_at
+        from content_machine.research_remediation_conversations
+        where job_id in ${sql(jobIds)} order by created_at,id
+      `
+    : [];
+  const remediationEvents = jobIds.length
+    ? await sql<
+        {
+          id: string;
+          remediation_id: string;
+          topic_id: string;
+          job_id: string;
+          action: string;
+          diagnostic_id: string | null;
+          payload: Json;
+          created_at: DateValue;
+        }[]
+      >`
+        select id,remediation_id,topic_id,job_id,action,diagnostic_id,payload,created_at
+        from content_machine.research_remediation_events
+        where job_id in ${sql(jobIds)} order by created_at,id
+      `
+    : [];
+  const telegramMessages = topicIds.length
+    ? await sql<
+        {
+          short_id: string;
+          topic_id: string;
+          telegram_message_id: number;
+          version: number;
+          payload: Json;
+          updated_at: DateValue;
+        }[]
+      >`
+        select short_id,topic_id,telegram_message_id,version,payload,updated_at
+        from content_machine.telegram_message_index
+        where topic_id in ${sql(topicIds)} order by updated_at,short_id
+      `
+    : [];
 
   const discoverySources = await discoverySourceAudit(artifacts, events);
   return {
@@ -285,6 +343,20 @@ export async function auditProductionResearch(
     })),
     discoverySources,
     llmInvocations: invocations,
+    remediationConversations: remediationConversations.map((row) => ({
+      ...without(row, "payload"),
+      payload: pick(row.payload, [
+        "pendingUrl",
+        "retrievalFailure",
+        "diagnosticId",
+        "version",
+      ]),
+    })),
+    remediationEvents,
+    telegramMessages: telegramMessages.map((row) => ({
+      ...without(row, "payload"),
+      payloadKeys: Object.keys(row.payload).sort(),
+    })),
   };
 }
 
