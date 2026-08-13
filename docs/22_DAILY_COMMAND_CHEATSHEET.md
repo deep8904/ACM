@@ -27,4 +27,4 @@ No terminal is needed.
 
 Normal successful path: approve one topic, wait for the final article card, then approve the exact article. Everything between and after those gates is automatic.
 
-Discovery occurs Monday and Thursday at 16:00 UTC. The worker continues approved work every 15 minutes, but it cannot create additional scheduled discovery runs.
+Discovery occurs Monday and Thursday at 16:00 UTC. Two offset hourly schedules give the worker a nominal twice-hourly wakeup; delayed wakeups reconcile missed durable work but cannot create additional scheduled discovery runs.

@@ -2,7 +2,11 @@ name: Content automation worker
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # GitHub may delay or drop high-frequency scheduled runs. Two off-peak,
+    # offset wakeups give the durable reconciler independent chances to run
+    # without changing the Monday/Thursday discovery slots.
+    - cron: "17 * * * *"
+    - cron: "47 * * * *"
   workflow_dispatch:
     inputs:
       migration_only:

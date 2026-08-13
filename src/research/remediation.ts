@@ -1517,7 +1517,7 @@ function evidenceInputCard(
 ) {
   return {
     topicId: state.topicId,
-    text: `<b>Provide official source evidence</b>\nCanonical source: ${escape(canonicalUrl)}\n\nPaste one relevant text excerpt copied from that exact official page. You can add more chunks before review. Text is treated as inert evidence and is limited to 20,000 bytes. This request is actor-scoped and expires at ${escape(state.expiresAt)}.`,
+    text: `<b>Provide official source evidence</b>\nCanonical source: ${escape(canonicalUrl)}\n\nPaste one relevant text excerpt copied from that exact official page. Keep each Telegram message under 4,000 characters; you can add more chunks before review, up to 20,000 bytes total. Text is treated as inert evidence. This request is actor-scoped and expires at ${escape(state.expiresAt)}.`,
     buttons: [
       [button("Cancel evidence entry", "cancel_evidence", state, secret)],
     ],

@@ -26,9 +26,9 @@ flowchart LR
 
 ### Scheduler
 
-On the free hosted V1, GitHub Actions is the primary scheduler, reconciler, and worker. It runs the durable worker every 15 minutes and also supports manual dispatch. A repository-level concurrency group prevents overlapping runs. Each invocation reconciles durable Postgres jobs before draining them and records scheduler/worker heartbeats.
+On the free hosted V1, GitHub Actions is the primary scheduler, reconciler, and worker. Two off-peak, offset schedules provide a nominal twice-hourly worker wakeup and manual dispatch remains available. A repository-level concurrency group prevents overlapping runs. Each invocation reconciles durable Postgres jobs before draining them and records scheduler/worker heartbeats.
 
-Reconciliation resolves only two UTC discovery slots per week: Monday and Thursday at 16:00 UTC. Repeated 15-minute worker runs reuse the slot's deterministic idempotency key, so they cannot create extra discovery runs. Each successful run durably records its window end; the next run starts at that boundary and ends at the current slot, preventing gaps and overlaps. A first run bootstraps from the preceding seven days.
+Reconciliation resolves only two UTC discovery slots per week: Monday and Thursday at 16:00 UTC. Repeated or delayed worker runs reuse the slot's deterministic idempotency key, so they cannot create extra discovery runs. Each successful run durably records its window end; the next run starts at that boundary and ends at the current slot, preventing gaps and overlaps. A first run bootstraps from the preceding seven days.
 
 ### Discovery service
 

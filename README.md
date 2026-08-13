@@ -4,7 +4,7 @@ AI Content Machine is a trend-first, human-approved publishing system for Deep's
 
 ## V1 production operation
 
-Normal operation is Telegram-only after the one-time hosted setup. Discovery runs exactly twice per week; the hosted worker may wake every 15 minutes to reconcile durable work without creating extra discovery runs. Vercel hosts the permanent webhook, health check, and signed previews; GitHub Actions runs durable lease-based jobs; private state remains in Supabase/Postgres; and exact final approval automatically publishes to `deep8904/Deep-Blog` and verifies its Vercel production deployment. See [`docs/20_DEEP_OPERATOR_GUIDE.md`](docs/20_DEEP_OPERATOR_GUIDE.md).
+Normal operation is Telegram-only after the one-time hosted setup. Discovery runs exactly twice per week; redundant offset GitHub schedules wake the durable worker twice per hour without creating extra discovery runs, and delayed wakeups reconcile missed work. Vercel hosts the permanent webhook, health check, and signed previews; GitHub Actions runs durable lease-based jobs; private state remains in Supabase/Postgres; and exact final approval automatically publishes to `deep8904/Deep-Blog` and verifies its Vercel production deployment. See [`docs/20_DEEP_OPERATOR_GUIDE.md`](docs/20_DEEP_OPERATOR_GUIDE.md).
 
 Social distribution remains a separate later phase and is not part of the V1 automatic blog-publication path.
 

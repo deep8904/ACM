@@ -4,8 +4,8 @@ import type { SystemHeartbeat } from "./models";
 import { PostgresAutomationJobRepository } from "./repository";
 import { discoveryScheduleStatus } from "./discovery-schedule";
 
-const SCHEDULER_MAX_AGE_MS = 30 * 60 * 1000;
-const WORKER_MAX_AGE_MS = 30 * 60 * 1000;
+const AUTOMATION_WARN_AGE_MS = 75 * 60 * 1000;
+const AUTOMATION_MAX_AGE_MS = 3 * 60 * 60 * 1000;
 const WEBHOOK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export const REQUIRED_PRODUCTION_ENVIRONMENT = [
@@ -42,6 +42,12 @@ export function evaluateAutomationHeartbeats(
     typeof scheduler?.details.source === "string"
       ? scheduler.details.source
       : "unknown";
+  const state = (value: SystemHeartbeat | undefined) => {
+    const elapsed = age(value) ?? Infinity;
+    if (!value || elapsed >= AUTOMATION_MAX_AGE_MS) return "stale";
+    if (value.status !== "healthy") return value.status;
+    return elapsed >= AUTOMATION_WARN_AGE_MS ? "degraded" : "healthy";
+  };
 
   return {
     webhook:
@@ -49,16 +55,9 @@ export function evaluateAutomationHeartbeats(
         ? webhook.status
         : "unknown",
     scheduler:
-      scheduler &&
-      schedulerSource === "github_actions" &&
-      (age(scheduler) ?? Infinity) < SCHEDULER_MAX_AGE_MS
-        ? scheduler.status
-        : "stale",
+      schedulerSource === "github_actions" ? state(scheduler) : "stale",
     schedulerSource,
-    worker:
-      worker && (age(worker) ?? Infinity) < WORKER_MAX_AGE_MS
-        ? worker.status
-        : "stale",
+    worker: state(worker),
   };
 }
 
@@ -96,8 +95,8 @@ export async function productionReadiness(
       database.healthy &&
       missing.length === 0 &&
       components.vercel === "configured" &&
-      components.scheduler === "healthy" &&
-      components.worker === "healthy",
+      ["healthy", "degraded"].includes(components.scheduler) &&
+      ["healthy", "degraded"].includes(components.worker),
     database: {
       healthy: database.healthy,
       migration: `${database.currentMigration}/${database.expectedMigration}`,

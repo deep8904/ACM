@@ -19,7 +19,7 @@ Configure the ACM repository's protected `production` environment with:
 - `BLOG_GITHUB_TOKEN` scoped to `deep8904/Deep-Blog` Contents read/write, Metadata read, and Deployments read
 - `GOOGLE_AI_API_KEY`, `PREVIEW_SIGNING_SECRET`, `CRON_SECRET`
 
-Set `CONTROL_PLANE_ORIGIN` and `SITE_ORIGIN` as GitHub environment variables. `SITE_ORIGIN` must be the permanent public blog origin. The checked-in `automation-worker.yml` is the primary scheduler and runs every 15 minutes. It handles migration checks, twice-weekly discovery slot reconciliation, leases, retries, and long-running stages. Its concurrency guard prevents overlapping workers, and `workflow_dispatch` provides a safe manual trigger. Durable slot idempotency ensures that worker frequency cannot increase discovery beyond Monday and Thursday at 16:00 UTC.
+Set `CONTROL_PLANE_ORIGIN` and `SITE_ORIGIN` as GitHub environment variables. `SITE_ORIGIN` must be the permanent public blog origin. The checked-in `automation-worker.yml` is the primary scheduler and uses two off-peak, offset hourly schedules for nominal twice-hourly wakeups. It handles migration checks, twice-weekly discovery slot reconciliation, leases, retries, and long-running stages. Its concurrency guard prevents overlapping workers, `workflow_dispatch` provides a safe manual trigger, and delayed wakeups reconcile missed durable work. Durable slot idempotency ensures that worker frequency cannot increase discovery beyond Monday and Thursday at 16:00 UTC.
 
 ## 3. Vercel control plane
 
@@ -55,7 +55,7 @@ Use the configured webhook secret token. Remove the old `trycloudflare.com` webh
 
 ## 5. Go/no-go
 
-- Database migration is `024/024` and valid.
+- Database migration is `025/025` and valid.
 - The GitHub worker workflow completes from `workflow_dispatch` without a laptop.
 - A scheduled or manually dispatched worker run writes a fresh `github_actions` scheduler heartbeat and a fresh worker heartbeat.
 - `/api/health` returns ready.
