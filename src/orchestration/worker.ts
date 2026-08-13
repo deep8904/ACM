@@ -68,7 +68,7 @@ import { TelegramBotApiClient } from "../telegram/telegram-client";
 import { loadWritingConfig } from "../writing/config";
 import { articleWritingResultSchema } from "../writing/models";
 import { WritingService } from "../writing/service";
-import { sha256 } from "../writing/task";
+import { canonicalJsonHash, sha256 } from "../writing/task";
 import type { AutomationJob } from "./models";
 import { reconcileAutomationQueue } from "./reconcile";
 import { PostgresAutomationJobRepository } from "./repository";
@@ -526,7 +526,7 @@ export class AutomationWorker {
       draftVersion,
     );
     if (!task) throw new Error("Prepared revision input is missing");
-    const taskHash = sha256(`${JSON.stringify(task, null, 2)}\n`);
+    const taskHash = canonicalJsonHash(task);
     const generated = await this.provider.generate({
       jobId: job.id,
       stage: "revision",

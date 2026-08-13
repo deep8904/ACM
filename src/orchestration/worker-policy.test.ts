@@ -3,6 +3,7 @@ import {
   normalizeRevisionIdentity,
   revisionIssueIdsForDecision,
 } from "./worker";
+import { canonicalJsonHash } from "../writing/task";
 
 describe("automation worker editorial policy", () => {
   it.each(["revise", "block"] as const)(
@@ -72,5 +73,11 @@ describe("automation worker editorial policy", () => {
         taskHash: "a".repeat(64),
       },
     });
+  });
+
+  it("hashes semantically identical task objects independent of key order", () => {
+    expect(canonicalJsonHash({ b: 2, a: { d: 4, c: 3 } })).toBe(
+      canonicalJsonHash({ a: { c: 3, d: 4 }, b: 2 }),
+    );
   });
 });

@@ -18,7 +18,7 @@ import {
 } from "../writing/models";
 import { evaluateDraft } from "../writing/quality";
 import { assertSafeSlug } from "../writing/slug";
-import { sha256 } from "../writing/task";
+import { canonicalJsonHash, sha256 } from "../writing/task";
 import type {
   EditorialReviewRepository,
   FinalApprovedEventRepository,
@@ -182,7 +182,7 @@ export class RevisionService {
     const task = revisionTaskInputSchema.parse(
       await this.deps.tasks.readInput(topicId, draftVersion),
     );
-    const taskHash = sha256(`${JSON.stringify(task, null, 2)}\n`);
+    const taskHash = canonicalJsonHash(task);
     const provenanceMismatches = [
       result.topicId !== topicId && "topicId",
       result.sourceDraftId !== source.id && "sourceDraftId",

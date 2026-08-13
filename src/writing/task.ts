@@ -152,6 +152,19 @@ export async function createWritingTask(
 export function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
+export function canonicalJsonHash(value: unknown) {
+  return sha256(JSON.stringify(canonicalize(value)));
+}
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, canonicalize(child)]),
+    );
+  return value;
+}
 function readerQuestion(type: ArticleType) {
   return {
     breaking_news:
