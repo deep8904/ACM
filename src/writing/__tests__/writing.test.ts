@@ -418,12 +418,26 @@ describe("Milestone 5 writing boundary", () => {
     });
     const prepared = await service.prepare(research.topicId, 1);
     expect(prepared.job.status).toBe("awaiting_manual_writing");
-    expect(
+    const writingInstructions = await readFile(
+      join(root, "tasks", research.topicId, "v1", "article-writing.md"),
+      "utf8",
+    );
+    expect(writingInstructions).toContain("Do not browse");
+    expect(writingInstructions).toContain(
+      "every claimReferences[].section exactly matches an H2-H4 heading",
+    );
+    expect(writingInstructions).toContain(
+      "every source ID on a claim reference is listed on that research claim",
+    );
+    const writingInput = JSON.parse(
       await readFile(
-        join(root, "tasks", research.topicId, "v1", "article-writing.md"),
+        join(root, "tasks", research.topicId, "v1", "writing-input.json"),
         "utf8",
       ),
-    ).toContain("Do not browse");
+    ) as { brief: { mdxRequirements: string[] } };
+    expect(writingInput.brief.mdxRequirements).toContain(
+      "Every claimReferences[].section value must exactly match the text of an H2-H4 heading in mdx",
+    );
     const output = join(root, "writer-result.json");
     await writeAtomicJson(output, result());
     const imported = await service.import(research.topicId, 1, output);
