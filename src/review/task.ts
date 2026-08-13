@@ -58,8 +58,8 @@ export async function createReviewTask(
   const allowedArticleSections = inspectMdx(
     draft.mdx,
     new Set(packet.sourceIndex.map((source) => source.id)),
-  ).headings
-    .filter((heading) => heading.level >= 2 && heading.level <= 4)
+  )
+    .headings.filter((heading) => heading.level >= 2 && heading.level <= 4)
     .map((heading) => heading.text);
   const input = {
     schemaVersion: "1.0",
