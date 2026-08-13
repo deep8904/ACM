@@ -32,6 +32,7 @@ describe("database migrations", () => {
       "023",
       "024",
       "025",
+      "026",
     ]);
     const sql = migrations.map((item) => item.sql).join("\n");
     expect(sql).toContain("create schema if not exists content_machine");
@@ -100,5 +101,19 @@ describe("database migrations", () => {
     expect(migration?.sql).toContain("at time zone 'UTC'");
     expect(migration?.sql).toContain("payload->>'updatedAt'");
     expect(migration?.sql).not.toMatch(/delete\s+from/i);
+  });
+  it("keys immutable article drafts and quality reports by version", async () => {
+    const migration = (await loadMigrations()).find(
+      (item) => item.version === "026",
+    );
+    expect(migration?.sql).toContain(
+      "article_drafts_pkey primary key (id, draft_version)",
+    );
+    expect(migration?.sql).toContain(
+      "draft_quality_reports_pkey primary key (draft_id, draft_version)",
+    );
+    expect(migration?.sql).toContain("foreign key (draft_id, draft_version)");
+    expect(migration?.sql).not.toMatch(/delete\s+from/i);
+    expect(migration?.sql).not.toMatch(/update\s+content_machine/i);
   });
 });
