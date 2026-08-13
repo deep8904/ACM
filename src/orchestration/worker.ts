@@ -545,7 +545,12 @@ export class AutomationWorker {
       }),
       schema: revisionResultSchema,
     });
-    const imported = await withTemporaryJson(generated.value, (path) =>
+    const normalized = normalizeRevisionIdentity(
+      generated.value,
+      task,
+      taskHash,
+    );
+    const imported = await withTemporaryJson(normalized, (path) =>
       services.revision.import(topicId, draftVersion, path),
     );
     return {
@@ -846,6 +851,34 @@ export function revisionIssueIdsForDecision(
   return issues
     .filter((issue) => issue.status === "open")
     .map((issue) => issue.id);
+}
+
+export function normalizeRevisionIdentity(
+  value: unknown,
+  task: unknown,
+  taskHash: string,
+) {
+  const prepared = z
+    .object({
+      topicId: z.string(),
+      sourceDraftId: z.string(),
+      sourceDraftVersion: z.number().int().positive(),
+      request: z.object({ scope: revisionResultSchema.shape.revisionScope }),
+    })
+    .passthrough()
+    .parse(task);
+  const generated = z.record(z.string(), z.unknown()).parse(value);
+  return revisionResultSchema.parse({
+    ...generated,
+    topicId: prepared.topicId,
+    sourceDraftId: prepared.sourceDraftId,
+    sourceDraftVersion: prepared.sourceDraftVersion,
+    revisionScope: prepared.request.scope,
+    provenance: {
+      mode: "manual_claude_code",
+      taskHash,
+    },
+  });
 }
 
 export async function runAutomationWorker(
