@@ -49,6 +49,56 @@ describe("Telegram research remediation", () => {
     );
   });
 
+  it("suppresses the same blocked transition across retry and reconciliation paths", async () => {
+    const harness = createIntegratedHarness();
+    let claimed = false;
+    (harness.repository as ResearchRemediationRepository).claimNotification =
+      vi.fn(async () => {
+        if (claimed) return false;
+        claimed = true;
+        return true;
+      });
+
+    await harness.controller.notifyBlocked(recoverableJob() as never, actor);
+    await harness.controller.notifyBlocked(recoverableJob() as never, actor);
+
+    expect(
+      harness.adapter.calls.filter(
+        (call) => call.method === "sendFinalReviewCard",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps a known unavailable official source in the recovery card", async () => {
+    const canonicalUrl =
+      "https://openai.com/index/expanding-daybreak-as-the-cyber-defense-window-narrows";
+    const harness = createActionableHarness({
+      sourceIndex: [
+        {
+          id: "source_aaaaaaaaaaaaaaaaaaaaaaaa",
+          isPrimary: true,
+          extractionStatus: "blocked",
+          canonicalUrl,
+          warnings: ["Retrieval failed: 403_forbidden: HTTP 403"],
+        },
+      ],
+    });
+
+    await harness.controller.notifyBlocked(recoverableJob() as never, actor);
+
+    const card = harness.adapter.calls.find(
+      (call) => call.method === "sendFinalReviewCard",
+    )?.card;
+    expect(card?.text).toContain(canonicalUrl);
+    expect(card?.text).toContain("403_forbidden");
+    expect(card?.buttons.flat().map((button) => button.text)).toContain(
+      "Provide source evidence",
+    );
+    expect(card?.buttons.flat().map((button) => button.text)).not.toContain(
+      "Add primary source",
+    );
+  });
+
   it("makes the old card stale on refresh while keeping the newest card valid", async () => {
     const harness = createIntegratedHarness();
     await harness.controller.notifyBlocked(recoverableJob() as never, actor);

@@ -203,6 +203,18 @@ export class TelegramBotApiClient implements EditorialNotificationAdapter {
         await this.sleep(retryAfter ? retryAfter * 1000 : 200 * 2 ** attempt);
       } catch (error) {
         lastError = error;
+        // Telegram has no idempotency key for sendMessage. A transport error
+        // can occur after Telegram accepted the message, so retrying here can
+        // create an identical operator card. Explicit API rejections may be
+        // retried; an ambiguous transport failure must remain at-most-once.
+        if (method === "sendMessage" && !(error instanceof TelegramApiError))
+          throw new TelegramApiError(
+            `Telegram ${method} request outcome is unknown`,
+            method,
+            undefined,
+            undefined,
+            { cause: error },
+          );
         const retryable =
           !(error instanceof TelegramApiError) ||
           error.telegramErrorCode === 429 ||

@@ -1144,10 +1144,12 @@ export class ResearchService {
         ...editorialItems,
       ]);
     }
-    const run = await this.deps.catalog.getRun(event.runId);
     const ids = new Set(event.sourceItemIds);
+    const approvedSources = event.sourceSnapshot?.length
+      ? event.sourceSnapshot.map((source) => ({ ...source, rawMetadata: {} }))
+      : (await this.deps.catalog.getRun(event.runId)).sourceItems;
     return uniqueItems([
-      ...run.sourceItems
+      ...approvedSources
         .filter((x) => ids.has(x.id))
         .sort(
           (a, b) =>

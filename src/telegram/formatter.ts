@@ -38,7 +38,7 @@ export function formatTopicCard(
       escapeTelegramHtml(summary),
       `<b>Why now:</b> ${escapeTelegramHtml(candidate.selectionReasons.join("; ") || "Deterministic ranking threshold passed")}`,
       `<b>Recommended angle:</b> ${escapeTelegramHtml(angle)}`,
-      `<b>Evidence:</b> ${candidate.evidenceStrength} · ${candidate.primarySourceItemIds.length} primary · ${cluster.independentSourceCount} independent`,
+      `<b>Evidence:</b> ${candidate.evidenceStrength} · ${candidate.primarySourceItemIds.length} primary identified (retrieval pending) · ${cluster.independentSourceCount} independent`,
       `<b>Shelf life:</b> ${candidate.estimatedShelfLife}`,
       `<b>Risks:</b> ${escapeTelegramHtml(candidate.risks.join("; ") || "none identified")}`,
       `<b>Selection:</b> ${escapeTelegramHtml(candidate.selectionReasons.join("; ") || "eligible deterministic score")}`,

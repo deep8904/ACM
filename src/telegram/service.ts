@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import type { SourceItem } from "../discovery/models/source-item";
 import {
   log as defaultLog,
   type LogContext,
@@ -363,6 +364,7 @@ export class TopicApprovalService {
         item = createRankedQueueItem(
           candidate,
           cluster,
+          run.sourceItems,
           this.now(),
           this.options.config.TELEGRAM_TOPIC_EXPIRY_HOURS,
         );
@@ -410,6 +412,7 @@ export class TopicApprovalService {
       const item = createRankedQueueItem(
         candidate,
         cluster,
+        run.sourceItems,
         this.now(),
         this.options.config.TELEGRAM_TOPIC_EXPIRY_HOURS,
       );
@@ -633,8 +636,19 @@ export class TopicApprovalService {
         409,
       );
     const status = action === "approve" ? "approved" : "rejected";
+    const sourceSnapshot =
+      item.candidateSnapshot.kind === "ranked" && !item.sourceSnapshot?.length
+        ? (await this.options.catalog.getRun(item.runId)).sourceItems
+            .filter((source) =>
+              item.candidateSnapshot.candidate.sourceItemIds.includes(
+                source.id,
+              ),
+            )
+            .map(snapshotSource)
+        : item.sourceSnapshot;
     const updated = topicQueueItemSchema.parse({
       ...item,
+      sourceSnapshot,
       approvalStatus: status,
       researchReadiness:
         action === "approve" ? "ready_for_research" : "rejected",
@@ -685,6 +699,7 @@ export class TopicApprovalService {
               updated.candidateSnapshot.candidate.recommendedAngle,
             editorialNotes: updated.editorialNotes,
             sourceItemIds: updated.candidateSnapshot.candidate.sourceItemIds,
+            sourceSnapshot: updated.sourceSnapshot,
             origin: updated.origin,
             status: "ready",
             consumed: false,
@@ -1153,6 +1168,7 @@ export class TopicApprovalService {
 function createRankedQueueItem(
   candidate: TopicCandidate,
   cluster: StoryCluster,
+  sourceItems: SourceItem[],
   now: Date,
   expiryHours: number,
 ): TopicQueueItem {
@@ -1164,6 +1180,9 @@ function createRankedQueueItem(
     candidateId: candidate.id,
     runId: candidate.runId,
     candidateSnapshot: { kind: "ranked", candidate, cluster },
+    sourceSnapshot: sourceItems
+      .filter((source) => candidate.sourceItemIds.includes(source.id))
+      .map(snapshotSource),
     approvalStatus: "pending",
     researchReadiness: "blocked_pending_approval",
     editorialNotes: [],
@@ -1179,6 +1198,16 @@ function createRankedQueueItem(
 
 function rankedTopicId(runId: string, candidateId: string): string {
   return `topic_${hash(`${runId}\0${candidateId}`).slice(0, 24)}`;
+}
+
+function snapshotSource(source: SourceItem) {
+  const { rawMetadata: _rawMetadata, ...snapshot } = source;
+  void _rawMetadata;
+  return {
+    ...snapshot,
+    contentRetrievalStatus: source.contentRetrievalStatus ?? "not_attempted",
+    contentProvenance: source.contentProvenance ?? "feed_metadata",
+  };
 }
 
 function resolveReference(

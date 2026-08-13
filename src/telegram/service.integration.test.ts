@@ -96,6 +96,14 @@ describe("offline Telegram topic approval integration", () => {
     expect(after).toEqual(before);
     expect(after.events).toHaveLength(1);
     expect(after.events[0]).toMatchObject({ consumed: false, status: "ready" });
+    expect(after.events[0]?.sourceSnapshot).not.toHaveLength(0);
+    expect(
+      after.events[0]?.sourceSnapshot?.map((source) => source.id).sort(),
+    ).toEqual([...((after.events[0]?.sourceItemIds as string[]) ?? [])].sort());
+    expect(after.events[0]?.sourceSnapshot?.[0]).toMatchObject({
+      contentRetrievalStatus: "not_attempted",
+      contentProvenance: "feed_metadata",
+    });
     expect(
       after.queue.find(({ origin }) => origin === "manual_topic")
         ?.candidateSnapshot.candidate,

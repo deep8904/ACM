@@ -125,6 +125,31 @@ export const topicCandidateSnapshotSchema = z.union([
   manualTopicSnapshotSchema,
 ]);
 
+export const approvedSourceSnapshotSchema = z.object({
+  id: z.string().min(1),
+  sourceId: z.string().min(1),
+  sourceName: z.string().min(1),
+  sourceType: z.enum(["rss", "atom", "hacker-news"]),
+  authority: z.enum(["primary", "independent", "community", "aggregator"]),
+  sourceItemId: z.string().min(1).optional(),
+  title: z.string().min(1),
+  url: z.string().url(),
+  canonicalUrl: z.string().url(),
+  summary: z.string(),
+  author: z.string().min(1).optional(),
+  publishedAt: z.string().datetime({ offset: true }).optional(),
+  retrievedAt: z.string().datetime({ offset: true }),
+  categories: z.array(z.string()),
+  tags: z.array(z.string()),
+  language: z.string().min(2),
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  contentRetrievalStatus: z.enum(["not_attempted", "retrieved", "unavailable"]),
+  contentProvenance: z.enum(["feed_metadata", "retrieved_content"]),
+});
+export type ApprovedSourceSnapshot = z.infer<
+  typeof approvedSourceSnapshotSchema
+>;
+
 export const topicQueueItemSchema = z.object({
   id: z.string().regex(/^queue_[a-f0-9]{24}$/),
   shortId: z.string().regex(/^[a-f0-9]{12}$/),
@@ -132,6 +157,7 @@ export const topicQueueItemSchema = z.object({
   candidateId: z.string().min(1),
   runId: z.string().min(1),
   candidateSnapshot: topicCandidateSnapshotSchema,
+  sourceSnapshot: z.array(approvedSourceSnapshotSchema).optional(),
   approvalStatus: topicApprovalStatusSchema,
   researchReadiness: z.enum([
     "blocked_pending_approval",
@@ -213,6 +239,7 @@ export const topicApprovedEventSchema = z.object({
   approvedAngle: z.string(),
   editorialNotes: z.array(z.string()),
   sourceItemIds: z.array(z.string()),
+  sourceSnapshot: z.array(approvedSourceSnapshotSchema).optional(),
   origin: z.enum(["ranked", "manual_topic", "manual_url"]),
   status: z.enum(["ready", "cancelled"]).default("ready"),
   consumed: z.literal(false),

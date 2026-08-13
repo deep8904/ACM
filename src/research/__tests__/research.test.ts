@@ -326,6 +326,8 @@ describe("approved event to assisted packet integration", () => {
       retrievedAt: now,
       language: "en",
     });
+    const { rawMetadata: _rawMetadata, ...sourceIdentity } = item;
+    void _rawMetadata;
     const event = {
       id: "event_cccccccccccccccccccccccc",
       topicId: "topic_cccccccccccccccccccccccc",
@@ -336,6 +338,13 @@ describe("approved event to assisted packet integration", () => {
       approvedAngle: "Explain the release",
       editorialNotes: [],
       sourceItemIds: [item.id],
+      sourceSnapshot: [
+        {
+          ...sourceIdentity,
+          contentRetrievalStatus: "not_attempted" as const,
+          contentProvenance: "feed_metadata" as const,
+        },
+      ],
       origin: "ranked" as const,
       status: "ready" as const,
       consumed: false as const,
@@ -368,12 +377,9 @@ describe("approved event to assisted packet integration", () => {
       cache: sources,
       catalog: {
         latestRunId: async () => "run_retry",
-        getRun: async () => ({
-          runId: "run_retry",
-          candidates: [],
-          clusters: [],
-          sourceItems: [item],
-        }),
+        getRun: async () => {
+          throw new Error("catalog artifact should not be required");
+        },
       },
       config: researchConfigSchema.parse({ mode: "assisted" }),
       now: () => new Date(now),
