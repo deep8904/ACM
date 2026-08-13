@@ -156,19 +156,21 @@ export class PostgresTopicApprovalRepository implements TopicApprovalRepository 
           set status='superseded',superseded_by=${runId},superseded_at=now(),updated_at=now()
           where run_id=${active.run_id} and status='actionable'
         `;
-        await tx`
-          update content_machine.topic_queue_items
-          set approval_status='superseded',version=version+1,updated_at=now(),
-            payload=jsonb_set(
-              jsonb_set(
-                jsonb_set(payload,'{approvalStatus}','"superseded"'::jsonb),
-                '{version}',to_jsonb(version+1)
-              ),
-              '{updatedAt}',to_jsonb(now()::text)
-            )
-          where run_id=${active.run_id} and approval_status='pending'
-        `;
       }
+      const currentTopicIds = items.map(({ topicId }) => topicId);
+      await tx`
+        update content_machine.topic_queue_items
+        set approval_status='superseded',version=version+1,updated_at=now(),
+          payload=jsonb_set(
+            jsonb_set(
+              jsonb_set(payload,'{approvalStatus}','"superseded"'::jsonb),
+              '{version}',to_jsonb(version+1)
+            ),
+            '{updatedAt}',to_jsonb(now()::text)
+          )
+        where approval_status='pending' and payload->>'origin'='ranked'
+          and topic_id not in ${tx(currentTopicIds)}
+      `;
       await tx`
         insert into content_machine.ranking_sets
           (run_id,origin,status,eligible_count,display_count,ranked_at,activated_at)
