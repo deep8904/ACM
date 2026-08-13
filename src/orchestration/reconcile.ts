@@ -87,6 +87,55 @@ export async function reconcileAutomationQueue(
     );
   }
 
+  const primaryRepairs = await sql<
+    { topic_id: string; approved_event_id: string; packet_version: number }[]
+  >`
+    select p.topic_id,p.approved_event_id,p.packet_version
+    from content_machine.research_packets p
+    where p.payload->>'status'='insufficient'
+      and p.packet_version=(
+        select max(p2.packet_version) from content_machine.research_packets p2
+        where p2.topic_id=p.topic_id
+      )
+      and p.payload->'provenance'->'humanAssistedEvidence' is not null
+      and jsonb_array_length(coalesce(p.payload->'primarySourceIds','[]'::jsonb)) > 0
+      and exists (
+        select 1 from jsonb_array_elements_text(
+          coalesce(p.payload->'blockingReasons','[]'::jsonb)
+        ) reason
+        where reason.value in (
+          'No primary source was retrieved','No primary source was provided',
+          'No primary source could be retrieved','A primary source is required'
+        )
+      )
+      and not exists (
+        select 1 from content_machine.automation_jobs j
+        where j.job_type='research' and j.topic_id=p.topic_id
+          and j.payload->>'packetVersion'=p.packet_version::text
+          and j.payload->>'repairPrimaryBlock'='true'
+          and j.status in ('queued','running','retryable','succeeded')
+      )
+  `;
+  for (const packet of primaryRepairs) {
+    enqueued.push(
+      (
+        await jobs.enqueue({
+          type: "research",
+          idempotencyKey: hash(
+            `research-primary-repair:${packet.approved_event_id}:${packet.packet_version}`,
+          ),
+          lineageKey: packet.approved_event_id,
+          topicId: packet.topic_id,
+          payload: {
+            eventId: packet.approved_event_id,
+            packetVersion: packet.packet_version,
+            repairPrimaryBlock: true,
+          },
+        })
+      ).id,
+    );
+  }
+
   const packets = await sql<{ topic_id: string; packet_version: number }[]>`
     select p.topic_id,p.packet_version
     from content_machine.research_packets p

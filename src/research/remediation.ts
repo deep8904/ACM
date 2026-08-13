@@ -33,6 +33,7 @@ import {
   loadResearchHandoff,
 } from "../orchestration/research-handoff";
 import { DurableApprovedEventError } from "./approved-event";
+import { hasVerifiedPrimaryEvidence } from "./primary-evidence";
 
 export interface ActionableResearchRecovery {
   job: AutomationJob;
@@ -707,6 +708,17 @@ export class ResearchRemediationService {
       !provenance
     )
       return;
+    const queue = await this.deps.topics.getQueueItem(state.topicId);
+    if (queue?.researchReadiness === "awaiting_source")
+      await this.deps.topics.saveQueueItem(
+        topicQueueItemSchema.parse({
+          ...queue,
+          researchReadiness: "ready_for_research",
+          updatedAt: this.now().toISOString(),
+          version: queue.version + 1,
+        }),
+        queue.version,
+      );
     return this.deps.jobs.enqueue({
       type: "research",
       idempotencyKey: automationKey(
@@ -743,6 +755,7 @@ export class ResearchRemediationService {
       packet.approvedEventId !== event.id ||
       packet.sufficient ||
       packet.status === "awaiting_assisted_synthesis" ||
+      hasVerifiedPrimaryEvidence(packet) ||
       (!packet.blockingReasons.some((reason) =>
         /primary source/i.test(reason),
       ) &&
