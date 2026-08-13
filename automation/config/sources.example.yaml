@@ -47,7 +47,7 @@ sources:
     name: The Verge Technology
     type: rss
     url: https://www.theverge.com/rss/index.xml
-    authority: secondary
+    authority: independent
     topics: [hardware, monitors, computers, software, gaming]
     enabled: true
     maxItems: 20
