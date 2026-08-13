@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseSourceConfigText, SourceConfigError } from "./source-config";
+import {
+  loadSourceConfig,
+  parseSourceConfigText,
+  SourceConfigError,
+} from "./source-config";
 
 const validSource = `
 sources:
@@ -12,6 +16,15 @@ sources:
 `;
 
 describe("parseSourceConfigText", () => {
+  it("parses the checked-in hosted discovery sources", async () => {
+    const config = await loadSourceConfig(
+      "automation/config/sources.example.yaml",
+    );
+    expect(
+      config.sources.filter((source) => source.enabled).length,
+    ).toBeGreaterThanOrEqual(5);
+  });
+
   it("applies bounded defaults", () => {
     const result = parseSourceConfigText(validSource);
     expect(result.sources[0]).toMatchObject({
