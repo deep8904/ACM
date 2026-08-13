@@ -111,7 +111,9 @@ export class PostgresTopicApprovalRepository implements TopicApprovalRepository 
       >`
         select status from content_machine.ranking_sets where run_id=${runId}
       `;
-      if (existing[0])
+      if (existing[0]) {
+        if (existing[0].status === "actionable")
+          await this.supersedeNonCurrentRankedItems(tx, items);
         return {
           status: existing[0].status,
           items:
@@ -119,6 +121,7 @@ export class PostgresTopicApprovalRepository implements TopicApprovalRepository 
               ? await this.queueForRun(tx, runId)
               : [],
         };
+      }
 
       const rankedAt = new Date(report[0].ranked_at).toISOString();
       const current = await tx<{ run_id: string; ranked_at: Date | string }[]>`
@@ -156,19 +159,8 @@ export class PostgresTopicApprovalRepository implements TopicApprovalRepository 
           set status='superseded',superseded_by=${runId},superseded_at=now(),updated_at=now()
           where run_id=${active.run_id} and status='actionable'
         `;
-        await tx`
-          update content_machine.topic_queue_items
-          set approval_status='superseded',version=version+1,updated_at=now(),
-            payload=jsonb_set(
-              jsonb_set(
-                jsonb_set(payload,'{approvalStatus}','"superseded"'::jsonb),
-                '{version}',to_jsonb(version+1)
-              ),
-              '{updatedAt}',to_jsonb(now()::text)
-            )
-          where run_id=${active.run_id} and approval_status='pending'
-        `;
       }
+      await this.supersedeNonCurrentRankedItems(tx, items);
       await tx`
         insert into content_machine.ranking_sets
           (run_id,origin,status,eligible_count,display_count,ranked_at,activated_at)
@@ -377,8 +369,28 @@ export class PostgresTopicApprovalRepository implements TopicApprovalRepository 
   private async queueForRun(sql: Queryable, runId: string) {
     const rows = await sql<PayloadRow[]>`
       select payload from content_machine.topic_queue_items
-      where run_id=${runId} order by created_at,id
+      where run_id=${runId} and approval_status <> 'superseded'
+      order by created_at,id
     `;
     return rows.map((row) => topicQueueItemSchema.parse(row.payload));
+  }
+  private async supersedeNonCurrentRankedItems(
+    sql: Queryable,
+    items: readonly TopicQueueItem[],
+  ) {
+    const currentTopicIds = items.map(({ topicId }) => topicId);
+    await sql`
+      update content_machine.topic_queue_items
+      set approval_status='superseded',version=version+1,updated_at=now(),
+        payload=jsonb_set(
+          jsonb_set(
+            jsonb_set(payload,'{approvalStatus}','"superseded"'::jsonb),
+            '{version}',to_jsonb(version+1)
+          ),
+          '{updatedAt}',to_jsonb(now()::text)
+        )
+      where approval_status='pending' and payload->>'origin'='ranked'
+        and topic_id not in ${sql(currentTopicIds)}
+    `;
   }
 }

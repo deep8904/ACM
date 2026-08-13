@@ -101,7 +101,9 @@ describe("actionable ranking-set supersession", () => {
       ).toHaveLength(3);
       expect(
         afterReplacement
-          .filter((item) => item.runId === manualRun)
+          .filter(
+            (item) => item.origin === "ranked" && item.runId !== scheduledRun,
+          )
           .every((item) => item.approvalStatus === "superseded"),
       ).toBe(true);
 
