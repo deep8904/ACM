@@ -438,6 +438,26 @@ export class AutomationWorker {
     const topicId = requiredTopic(job);
     const draftVersion = numberPayload(job, "draftVersion");
     const services = await this.reviewServices();
+    const existingReview = await services.review.report(topicId, draftVersion);
+    const existingIssueIds = existingReview
+      ? revisionIssueIdsForDecision(
+          existingReview.decision,
+          existingReview.issues,
+        )
+      : [];
+    if (existingReview && existingIssueIds.length) {
+      await services.revision.prepare(topicId, draftVersion, existingIssueIds, {
+        origin: "editorial_review",
+      });
+      return {
+        topicId,
+        decision: existingReview.decision,
+        reviewVersion: existingReview.version,
+        reusedReview: true,
+        revisionQueued: true,
+        issueCount: existingIssueIds.length,
+      };
+    }
     const prepared = await services.review.prepare(topicId, draftVersion);
     const task = await this.composition.review.tasks.readInput(
       topicId,
