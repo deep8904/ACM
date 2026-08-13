@@ -78,6 +78,36 @@ describe("FeedAdapter", () => {
     ]);
   });
 
+  it("excludes entries newer than the durable discovery window", async () => {
+    const result = await new FeedAdapter().fetchItems(
+      sourceConfigSchema.parse({
+        id: "fixture-rss",
+        name: "Fixture RSS",
+        type: "rss",
+        url: "https://fixtures.local/rss.xml",
+        authority: "primary",
+      }),
+      { ...context, windowUntil: "2026-08-06T11:59:59.000Z" },
+    );
+
+    expect(result.items).toHaveLength(0);
+  });
+
+  it("treats the previous successful window boundary as exclusive", async () => {
+    const result = await new FeedAdapter().fetchItems(
+      sourceConfigSchema.parse({
+        id: "fixture-rss",
+        name: "Fixture RSS",
+        type: "rss",
+        url: "https://fixtures.local/rss.xml",
+        authority: "primary",
+      }),
+      { ...context, lookbackSince: "2026-08-06T12:00:00.000Z" },
+    );
+
+    expect(result.items).toHaveLength(0);
+  });
+
   it("parses Atom links, authors, categories, and dates", async () => {
     const result = await new FeedAdapter().fetchItems(
       sourceConfigSchema.parse({

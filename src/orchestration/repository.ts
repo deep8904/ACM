@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { DatabaseClient } from "../database/client";
+import { type DatabaseClient, withTransaction } from "../database/client";
 import { toJsonValue } from "../database/json";
 import {
   automationJobSchema,
@@ -99,15 +99,33 @@ export class PostgresAutomationJobRepository {
     workerId: string,
     result: Record<string, unknown> = {},
   ): Promise<void> {
-    const rows = await this.sql<{ id: string }[]>`
-      update content_machine.automation_jobs
-      set status='succeeded',result=${this.sql.json(toJsonValue(result))},lease_owner=null,lease_expires_at=null,
-          heartbeat_at=now(),completed_at=now(),updated_at=now(),failure_code=null,
-          failure_summary=null,diagnostic_id=null,version=version+1
-      where id=${id} and status='running' and lease_owner=${workerId} returning id
-    `;
-    if (!rows[0])
-      throw new Error("Automation job lease was lost before completion");
+    await withTransaction(this.sql, async (tx) => {
+      const rows = await tx<
+        { id: string; job_type: string; payload: Record<string, unknown> }[]
+      >`
+        update content_machine.automation_jobs
+        set status='succeeded',result=${tx.json(toJsonValue(result))},lease_owner=null,lease_expires_at=null,
+            heartbeat_at=now(),completed_at=now(),updated_at=now(),failure_code=null,
+            failure_summary=null,diagnostic_id=null,version=version+1
+        where id=${id} and status='running' and lease_owner=${workerId}
+        returning id,job_type,payload
+      `;
+      const row = rows[0];
+      if (!row)
+        throw new Error("Automation job lease was lost before completion");
+      if (
+        row.job_type === "discovery" &&
+        typeof row.payload.windowStart === "string" &&
+        typeof row.payload.windowEnd === "string" &&
+        typeof row.payload.runId === "string"
+      )
+        await tx`
+          update content_machine.discovery_schedule_state
+          set last_successful_at=now(),last_window_start=${row.payload.windowStart},
+              last_window_end=${row.payload.windowEnd},last_run_id=${row.payload.runId},updated_at=now()
+          where id='primary' and (last_window_end is null or last_window_end < ${row.payload.windowEnd})
+        `;
+    });
   }
 
   async fail(

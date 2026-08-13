@@ -155,6 +155,29 @@ describe("Telegram research remediation", () => {
     expect(harness.research.extendSource).not.toHaveBeenCalled();
   });
 
+  it("does not project the old NuPhy block while accepted packet v7 awaits synthesis", async () => {
+    const harness = createActionableHarness({
+      version: 7,
+      status: "awaiting_assisted_synthesis",
+      primarySourceIds: ["source_bbbbbbbbbbbbbbbbbbbbbbbb"],
+      blockingReasons: [],
+    });
+
+    await harness.controller.showActionableJobs(actor);
+
+    expect(
+      harness.adapter.calls.filter(
+        (call) => call.method === "sendFinalReviewCard",
+      ),
+    ).toHaveLength(0);
+    expect(harness.adapter.calls).toContainEqual(
+      expect.objectContaining({
+        method: "sendStatusMessage",
+        text: expect.stringContaining("No actionable automation jobs"),
+      }),
+    );
+  });
+
   it("turns an expired card into a fresh actor-scoped recovery card through /jobs Resume", async () => {
     const harness = createActionableHarness();
     await harness.repository.save(
@@ -908,6 +931,7 @@ function createHarness() {
         evidenceHash: "b".repeat(64),
       },
     })),
+    ensureEvidenceContinuation: vi.fn(async () => undefined),
   };
   const cancelTopic = vi.fn(async () => undefined);
   const refreshTopics = vi.fn(async () => undefined);
@@ -978,7 +1002,9 @@ function createIntegratedHarness() {
   };
 }
 
-function createActionableHarness() {
+function createActionableHarness(
+  packetOverrides: Record<string, unknown> = {},
+) {
   const repository = new MemoryRepository();
   const adapter = new RecordingTelegramAdapter();
   const current = recoverableJob();
@@ -1011,6 +1037,7 @@ function createActionableHarness() {
     version: 6,
     sufficient: false,
     blockingReasons: ["No primary source was retrieved"],
+    ...packetOverrides,
   };
   const queue = {
     approvalStatus: "approved",

@@ -156,6 +156,11 @@ export const helpText = `<b>AI Content Machine — topic approval</b>
 /skip_cycle — skip every pending topic in this cycle
 /add &lt;topic&gt; — submit a manual topic
 /link &lt;https://…&gt; — submit a URL without fetching it
+/interests — view and manage durable editorial interests
+/interest_add Name | keyword one, keyword two — add and enable an interest
+/interest_enable &lt;interest_id&gt; — enable an interest
+/interest_disable &lt;interest_id&gt; — disable an interest
+/interest_remove &lt;interest_id&gt; — remove an interest while preserving audit history
 /queue [all] — inspect topic state
 /status &lt;topic_id&gt; — inspect one topic
 /cancel [topic_id] — cancel pending input or an approved unpublished topic
@@ -164,7 +169,7 @@ export const helpText = `<b>AI Content Machine — topic approval</b>
 /retry &lt;automationjob_id&gt; — safely retry a failed or blocked job
 /cancel_job &lt;automationjob_id&gt; — safely cancel queued work
 /add_source &lt;topic_id&gt; — recover blocked research with a public source URL
-/system_status — database, webhook, scheduler, worker, GitHub, Vercel, and AI readiness
+/system_status — readiness plus last/next discovery and the durable discovery window
 /drafts — list final article approval state
 /review &lt;topic_id&gt; — open the final review card
 /article &lt;topic_id&gt; — open the final review card

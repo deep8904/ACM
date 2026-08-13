@@ -31,6 +31,8 @@ export interface DiscoveryOptions {
   adapters: readonly TrendSourceAdapter[];
   fetch: FetchImplementation;
   lookbackHours?: number;
+  windowStart?: string;
+  windowEnd?: string;
   maxItems?: number;
   now?: () => Date;
   monotonicNow?: () => number;
@@ -68,11 +70,13 @@ export async function runDiscovery(
   const monotonicNow = options.monotonicNow ?? (() => performance.now());
   const logger = options.logger ?? defaultLog;
   const startedAt = now().toISOString();
-  const lookbackSince = options.lookbackHours
-    ? new Date(
-        new Date(startedAt).getTime() - options.lookbackHours * 3_600_000,
-      ).toISOString()
-    : undefined;
+  const lookbackSince =
+    options.windowStart ??
+    (options.lookbackHours
+      ? new Date(
+          new Date(startedAt).getTime() - options.lookbackHours * 3_600_000,
+        ).toISOString()
+      : undefined);
   const adapterIndex = indexAdapters(options.adapters);
   const rawItems: SourceItem[] = [];
   const sourceReports: SourceRunReport[] = [];
@@ -102,6 +106,7 @@ export async function runDiscovery(
       runId: options.runId,
       retrievedAt: startedAt,
       lookbackSince,
+      windowUntil: options.windowEnd,
       maxItems: options.maxItems,
       fetch: options.fetch,
       sleep: options.sleep,
@@ -150,6 +155,8 @@ export async function runDiscovery(
     stage: "DISCOVERING",
     startedAt,
     completedAt: now().toISOString(),
+    windowStart: options.windowStart,
+    windowEnd: options.windowEnd,
     sourceReports,
     deduplication: deduplicated.report,
   };

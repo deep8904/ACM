@@ -1,4 +1,59 @@
 sources:
+  - id: openai-news
+    name: OpenAI News
+    type: rss
+    url: https://openai.com/news/rss.xml
+    authority: primary
+    topics: [ai, software, models]
+    enabled: true
+    maxItems: 20
+    timeoutMs: 10000
+    language: en
+
+  - id: figma-release-notes
+    name: Figma Release Notes
+    type: atom
+    url: https://www.figma.com/release-notes/feed/atom.xml
+    authority: primary
+    topics: [design, ai, creator-technology]
+    enabled: true
+    maxItems: 20
+    timeoutMs: 10000
+    language: en
+
+  - id: unity-lts-releases
+    name: Unity LTS Releases
+    type: atom
+    url: https://unity.com/releases/editor/lts-releases.xml
+    authority: primary
+    topics: [gaming, game-development, game-engine]
+    enabled: true
+    maxItems: 20
+    timeoutMs: 10000
+    language: en
+
+  - id: nintendo-news
+    name: Nintendo News
+    type: rss
+    url: https://www.nintendo.co.jp/news/whatsnew.xml
+    authority: primary
+    topics: [gaming, nintendo, hardware]
+    enabled: true
+    maxItems: 20
+    timeoutMs: 10000
+    language: ja
+
+  - id: verge-technology
+    name: The Verge Technology
+    type: rss
+    url: https://www.theverge.com/rss/index.xml
+    authority: secondary
+    topics: [hardware, monitors, computers, software, gaming]
+    enabled: true
+    maxItems: 20
+    timeoutMs: 10000
+    language: en
+
   - id: github-changelog
     name: GitHub Changelog
     type: rss

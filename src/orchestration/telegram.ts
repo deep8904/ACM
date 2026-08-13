@@ -53,7 +53,7 @@ export class OperationsTelegramController implements FinalReviewControl {
         : "none";
       await this.deps.adapter.sendStatusMessage(
         actor.chatId,
-        `<b>System ${status.ready ? "ready ✓" : "not ready"}</b>\nDatabase: ${status.components.database} · migration ${status.database.migration}\nWebhook: ${status.components.webhook}\nScheduler: ${status.components.scheduler} · ${status.components.schedulerSource}\nWorker: ${status.components.worker}\nGitHub: ${status.components.github} · Vercel: ${status.components.vercel}\nAI provider: ${status.components.llm}\nMissing setup: ${missing}`,
+        `<b>System ${status.ready ? "ready ✓" : "not ready"}</b>\nDatabase: ${status.components.database} · migration ${status.database.migration}\nWebhook: ${status.components.webhook}\nScheduler: ${status.components.scheduler} · ${status.components.schedulerSource}\nWorker: ${status.components.worker}\nGitHub: ${status.components.github} · Vercel: ${status.components.vercel}\nAI provider: ${status.components.llm}\nLast discovery: ${status.discovery.lastSuccessfulAt ?? "none yet"}\nNext discovery: ${status.discovery.nextDiscoveryAt}\nCurrent window: ${status.discovery.currentWindowStart} → ${status.discovery.currentWindowEnd}\nMissing setup: ${missing}`,
       );
       return;
     }

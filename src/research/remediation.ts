@@ -472,7 +472,7 @@ export class ResearchRemediationService {
     const job = await this.deps.jobs.enqueue({
       type: "research",
       idempotencyKey: automationKey(
-        `research-remediation:${state.eventId}:${packet.version}`,
+        `research-continuation:${state.eventId}:${packet.version}`,
       ),
       lineageKey: state.eventId,
       topicId: state.topicId,
@@ -651,7 +651,7 @@ export class ResearchRemediationService {
     const job = await this.deps.jobs.enqueue({
       type: "research",
       idempotencyKey: automationKey(
-        `human-evidence:${state.id}:${provenance.evidenceHash}`,
+        `research-continuation:${state.eventId}:${packet.version}`,
       ),
       lineageKey: state.eventId,
       topicId: state.topicId,
@@ -697,6 +697,33 @@ export class ResearchRemediationService {
     });
   }
 
+  async ensureEvidenceContinuation(state: ResearchRemediation) {
+    const packet = await this.deps.packets.get(state.topicId);
+    const provenance = packet?.provenance.humanAssistedEvidence;
+    if (
+      !packet ||
+      packet.approvedEventId !== state.eventId ||
+      packet.status !== "awaiting_assisted_synthesis" ||
+      !provenance
+    )
+      return;
+    return this.deps.jobs.enqueue({
+      type: "research",
+      idempotencyKey: automationKey(
+        `research-continuation:${state.eventId}:${packet.version}`,
+      ),
+      lineageKey: state.eventId,
+      topicId: state.topicId,
+      parentJobId: state.jobId,
+      payload: {
+        eventId: state.eventId,
+        remediationId: state.id,
+        packetVersion: packet.version,
+        acquisitionMode: provenance.acquisitionMode,
+      },
+    });
+  }
+
   private async recoverableContext(job: AutomationJob) {
     if (job.type !== "research" || job.status !== "blocked") return;
     let event;
@@ -715,6 +742,7 @@ export class ResearchRemediationService {
       !packet ||
       packet.approvedEventId !== event.id ||
       packet.sufficient ||
+      packet.status === "awaiting_assisted_synthesis" ||
       (!packet.blockingReasons.some((reason) =>
         /primary source/i.test(reason),
       ) &&
@@ -959,6 +987,7 @@ export class ResearchRemediationTelegramController implements FinalReviewControl
       state.state === "queued" &&
       state.version === parsed.version + 1
     ) {
+      await this.deps.service.ensureEvidenceContinuation(state);
       await this.deps.adapter.answerCallback(query.id);
       await this.deps.adapter.sendStatusMessage(
         actor.chatId,

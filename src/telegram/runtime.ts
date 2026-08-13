@@ -41,6 +41,8 @@ import {
   ResearchRemediationTelegramController,
   researchRemediationCallbackSecret,
 } from "../research/remediation";
+import { EditorialInterestTelegramController } from "../interests/telegram";
+import { PostgresEditorialInterestRepository } from "../interests/repository";
 
 export function buildTelegramWebhookHandler(
   source: Readonly<Record<string, string | undefined>> = process.env,
@@ -212,6 +214,13 @@ export function buildTelegramWebhookHandler(
     config: analyticsConfig,
   });
   const topicControl: { current?: TopicApprovalService } = {};
+  const interests = composition.sql
+    ? new EditorialInterestTelegramController({
+        repository: new PostgresEditorialInterestRepository(composition.sql),
+        adapter,
+        callbackSecret: config.callbackSecret,
+      })
+    : undefined;
   const researchRemediation = composition.sql
     ? (() => {
         const researchConfig = researchConfigSchema.parse(
@@ -265,6 +274,7 @@ export function buildTelegramWebhookHandler(
     repository,
     catalog: composition.catalog,
     config,
+    interests,
     researchRemediation,
     operations: composition.sql
       ? new OperationsTelegramController({

@@ -7,6 +7,8 @@ import { FeedAdapter } from "../discovery/adapters/feed-adapter";
 import { HackerNewsAdapter } from "../discovery/adapters/hacker-news-adapter";
 import { loadSourceConfig } from "../discovery/config/source-config";
 import { runDiscovery } from "../discovery/discovery-service";
+import { applyEditorialInterests } from "../interests/ranking";
+import { PostgresEditorialInterestRepository } from "../interests/repository";
 import {
   createConfiguredLlmProvider,
   LlmProviderConfigurationError,
@@ -202,6 +204,13 @@ export class AutomationWorker {
 
   private async discovery(job: AutomationJob) {
     const runId = stringPayload(job, "runId");
+    const windowEnd =
+      optionalStringPayload(job, "windowEnd") ?? new Date().toISOString();
+    const windowStart =
+      optionalStringPayload(job, "windowStart") ??
+      new Date(
+        new Date(windowEnd).getTime() - 7 * 24 * 60 * 60_000,
+      ).toISOString();
     const sources = await loadSourceConfig(
       this.environment.DISCOVERY_CONFIG ??
         "automation/config/sources.example.yaml",
@@ -212,15 +221,23 @@ export class AutomationWorker {
       adapters: [new FeedAdapter(), new HackerNewsAdapter()],
       fetch,
       artifactRepository: this.composition.artifacts,
-      lookbackHours: Number(this.environment.DISCOVERY_LOOKBACK_HOURS ?? 72),
+      windowStart,
+      windowEnd,
     });
     if (!this.composition.sql)
       throw new Error("PostgreSQL storage is required");
+    const baseRankingConfig = await loadRankingConfig(
+      this.environment.RANKING_CONFIG ??
+        "automation/config/ranking.example.yaml",
+    );
+    const interests = new PostgresEditorialInterestRepository(
+      this.composition.sql,
+    );
     const ranking = await runRankingPipeline({
       runId,
-      config: await loadRankingConfig(
-        this.environment.RANKING_CONFIG ??
-          "automation/config/ranking.example.yaml",
+      config: applyEditorialInterests(
+        baseRankingConfig,
+        await interests.list(),
       ),
       history: new PostgresHistoryRepository(this.composition.sql),
       artifactRepository: this.composition.artifacts,
@@ -237,6 +254,8 @@ export class AutomationWorker {
       runId,
       ranked: ranking.ranked.length,
       notifiedChats: this.telegramConfig.TELEGRAM_ALLOWED_CHAT_IDS.length,
+      windowStart,
+      windowEnd,
     };
   }
 
@@ -271,7 +290,12 @@ export class AutomationWorker {
     if (!packet) {
       const event = await repositories.events.get(eventId);
       packet = event
-        ? await repositories.packets.get(event.topicId)
+        ? await repositories.packets.get(
+            event.topicId,
+            typeof job.payload.packetVersion === "number"
+              ? job.payload.packetVersion
+              : undefined,
+          )
         : undefined;
     }
     if (!packet) throw new Error("Research produced no durable packet");
@@ -843,6 +867,11 @@ function stringPayload(job: AutomationJob, key: string) {
   if (typeof value !== "string" || !value)
     throw new Error(`Automation payload is missing ${key}`);
   return value;
+}
+
+function optionalStringPayload(job: AutomationJob, key: string) {
+  const value = job.payload[key];
+  return typeof value === "string" && value ? value : undefined;
 }
 
 function numberPayload(job: AutomationJob, key: string) {

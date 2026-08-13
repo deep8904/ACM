@@ -2,6 +2,7 @@ import { checkDatabaseHealth } from "../database/health";
 import type { DatabaseClient } from "../database/client";
 import type { SystemHeartbeat } from "./models";
 import { PostgresAutomationJobRepository } from "./repository";
+import { discoveryScheduleStatus } from "./discovery-schedule";
 
 const SCHEDULER_MAX_AGE_MS = 30 * 60 * 1000;
 const WORKER_MAX_AGE_MS = 30 * 60 * 1000;
@@ -72,6 +73,7 @@ export async function productionReadiness(
   const jobs = new PostgresAutomationJobRepository(sql);
   const heartbeats = await jobs.heartbeats();
   const automation = evaluateAutomationHeartbeats(heartbeats);
+  const discovery = await discoveryScheduleStatus(sql);
   const components = {
     database: database.healthy ? "healthy" : "unhealthy",
     webhook: automation.webhook,
@@ -102,6 +104,7 @@ export async function productionReadiness(
       missingTables: database.missingTables,
     },
     components,
+    discovery,
     missing,
     checkedAt: new Date().toISOString(),
   };

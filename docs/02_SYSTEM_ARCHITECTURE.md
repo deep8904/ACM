@@ -28,7 +28,7 @@ flowchart LR
 
 On the free hosted V1, GitHub Actions is the primary scheduler, reconciler, and worker. It runs the durable worker every 15 minutes and also supports manual dispatch. A repository-level concurrency group prevents overlapping runs. Each invocation reconciles durable Postgres jobs before draining them and records scheduler/worker heartbeats.
 
-Reconciliation enqueues one deterministic discovery job per UTC day. Repeated 15-minute runs reuse the same idempotency key, so daily discovery happens automatically without duplicate daily jobs. Optional breaking-news runs can be triggered manually.
+Reconciliation resolves only two UTC discovery slots per week: Monday and Thursday at 16:00 UTC. Repeated 15-minute worker runs reuse the slot's deterministic idempotency key, so they cannot create extra discovery runs. Each successful run durably records its window end; the next run starts at that boundary and ends at the current slot, preventing gaps and overlaps. A first run bootstraps from the preceding seven days.
 
 ### Discovery service
 
@@ -63,6 +63,8 @@ Ranking has two layers:
 2. AI editorial score for relevance, angle strength, and shelf life.
 
 Only the top deterministic candidates should be sent to AI.
+
+The four initial editorial interests and their keyword weights live in durable Postgres state. Telegram commands can add, enable, disable, or remove interests; every change is recorded in an append-only audit table. Enabled interests influence ranking without weakening freshness, evidence, deduplication, or quality thresholds.
 
 ### Telegram gateway
 

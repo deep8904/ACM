@@ -18,7 +18,7 @@ describe("research queue reconciliation", () => {
 
     expect(first.invalidApprovedEvents).toEqual([malformedEventId]);
     expect(second.invalidApprovedEvents).toEqual([malformedEventId]);
-    expect(jobs.created()).toEqual(["discovery:2026-08-11"]);
+    expect(jobs.created()).toEqual(["discovery:2026-08-10T16:00:00.000Z"]);
   });
 
   it("creates one idempotent research job only for canonical event, queue, and approval lineage", async () => {
@@ -29,7 +29,10 @@ describe("research queue reconciliation", () => {
     await reconcileAutomationQueue(sql, jobs, now);
     await reconcileAutomationQueue(sql, jobs, now);
 
-    expect(jobs.created()).toEqual(["discovery:2026-08-11", row.event_id]);
+    expect(jobs.created()).toEqual([
+      "discovery:2026-08-10T16:00:00.000Z",
+      row.event_id,
+    ]);
   });
 
   it("rejects column/payload lineage disagreement before enqueue", async () => {
@@ -43,6 +46,24 @@ describe("research queue reconciliation", () => {
 
     expect(result.invalidApprovedEvents).toEqual([row.event_id]);
     expect(result.enqueued).toHaveLength(1);
+  });
+
+  it("repairs one missing packet-v7 synthesis continuation idempotently", async () => {
+    const continuation = {
+      topic_id: "topic_manual_4c603d43de72f01e1821878c",
+      approved_event_id: "event_509d1ba7456cbe4e7d149952",
+      packet_version: 7,
+    };
+    const jobs = fakeJobs();
+    const sql = fakeDatabase([], [continuation]);
+
+    await reconcileAutomationQueue(sql, jobs, now);
+    await reconcileAutomationQueue(sql, jobs, now);
+
+    expect(jobs.created()).toEqual([
+      "discovery:2026-08-10T16:00:00.000Z",
+      continuation.approved_event_id,
+    ]);
   });
 });
 
@@ -146,9 +167,17 @@ function lineageRow(
   };
 }
 
-function fakeDatabase(rows: ApprovedResearchLineageRow[]) {
+function fakeDatabase(
+  rows: ApprovedResearchLineageRow[],
+  continuations: {
+    topic_id: string;
+    approved_event_id: string;
+    packet_version: number;
+  }[] = [],
+) {
   return (async (parts: TemplateStringsArray) => {
     const query = parts.join(" ");
+    if (query.includes("awaiting_assisted_synthesis")) return continuations;
     return query.includes("topic_approved_events") ? rows : [];
   }) as unknown as DatabaseClient;
 }

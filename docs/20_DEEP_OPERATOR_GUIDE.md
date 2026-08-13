@@ -4,8 +4,8 @@
 
 ## Normal article flow
 
-1. The hosted worker runs discovery and ranking automatically once per day.
-2. Telegram sends one compact batch of the highest-ranked topics.
+1. The hosted worker runs discovery and ranking exactly twice per week, Monday and Thursday at 16:00 UTC. Each run covers the durable previous-successful-window boundary through the current slot.
+2. Telegram sends one compact batch of about three to four deduplicated, highest-ranked topics.
 3. Tap **Approve** or **Skip**. Use `/refresh`, `/skip_cycle`, `/add <topic>`, or `/link <https://…>` when needed.
 4. After approval, research, evidence validation, writing, deterministic checks, editorial review, and bounded revisions run automatically.
 5. Telegram sends one final article card with a signed remote preview.
@@ -32,6 +32,9 @@ Topic approval and exact final-article approval are mandatory and cannot be bypa
 - `/retry <automationjob_id>` — retry a failed or blocked job from a clean attempt budget.
 - `/cancel_job <automationjob_id>` — cancel work that has not started running.
 - `/system_status` — database, webhook, scheduler, worker, GitHub, Vercel, and AI-provider readiness.
+- `/interests` — view configurable editorial interests and use Enable, Disable, or Remove buttons.
+- `/interest_add Name | keyword one, keyword two` — add or re-enable an interest.
+- `/interest_enable <interest_id>`, `/interest_disable <interest_id>`, `/interest_remove <interest_id>` — command alternatives to the buttons.
 - `/help` — compact command reference.
 
 ## Recovery
@@ -66,6 +69,9 @@ Private audit data is in the non-exposed Postgres `content_machine` schema:
 - `llm_invocations`
 - immutable research packets, article drafts, editorial reviews, approvals, events, publications, and production publication artifacts
 - Telegram update and callback replay records
+- editorial interests and their append-only change history
+
+`/system_status` also shows the last successful discovery, current discovery window, and next discovery slot. The 15-minute worker cadence is for continuing research, writing, review, and publication work; it does not increase the twice-weekly discovery cadence.
 
 ## Advanced recovery only
 

@@ -85,7 +85,14 @@ export class HackerNewsAdapter implements TrendSourceAdapter {
       if (
         context.lookbackSince &&
         normalized.publishedAt &&
-        normalized.publishedAt < context.lookbackSince
+        normalized.publishedAt <= context.lookbackSince
+      ) {
+        continue;
+      }
+      if (
+        context.windowUntil &&
+        normalized.publishedAt &&
+        normalized.publishedAt > context.windowUntil
       ) {
         continue;
       }

@@ -28,6 +28,7 @@ describe("database migrations", () => {
       "019",
       "020",
       "021",
+      "022",
     ]);
     const sql = migrations.map((item) => item.sql).join("\n");
     expect(sql).toContain("create schema if not exists content_machine");
