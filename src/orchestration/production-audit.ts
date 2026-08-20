@@ -69,6 +69,28 @@ export async function auditProductionResearch(
     ...events.map((row) => row.topic_id),
     ...jobs.map((row) => row.topic_id).filter(isString),
   ]);
+  const topicAutomationJobs = topicIds.length
+    ? await sql<
+        {
+          id: string;
+          job_type: string;
+          status: string;
+          topic_id: string | null;
+          parent_job_id: string | null;
+          lineage_key: string;
+          payload: Json;
+          failure_summary: string | null;
+          diagnostic_id: string | null;
+          created_at: DateValue;
+          updated_at: DateValue;
+        }[]
+      >`
+        select id,job_type,status,topic_id,parent_job_id,lineage_key,payload,
+          failure_summary,diagnostic_id,created_at,updated_at
+        from content_machine.automation_jobs where topic_id in ${sql(topicIds)}
+        order by created_at,id
+      `
+    : [];
   const queues = topicIds.length
     ? await sql<
         {
@@ -367,6 +389,15 @@ export async function auditProductionResearch(
         "requestId",
         "runId",
         "scheduled",
+      ]),
+    })),
+    topicAutomationJobs: topicAutomationJobs.map((row) => ({
+      ...without(row, "payload"),
+      payload: pick(row.payload, [
+        "eventId",
+        "researchVersion",
+        "draftVersion",
+        "requestId",
       ]),
     })),
     researchJobs: researchJobs.map((row) => ({

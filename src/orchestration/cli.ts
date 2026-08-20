@@ -22,7 +22,10 @@ export async function main(args: string[]) {
       JSON.stringify(
         await runAutomationWorker(
           process.env,
-          selectedRetryJobIds(process.env.RETRY_JOB_IDS),
+          selectedJobIds(
+            process.env.SELECTED_JOB_IDS ?? process.env.RETRY_JOB_IDS,
+            "SELECTED_JOB_IDS",
+          ),
         ),
         null,
         2,
@@ -171,12 +174,16 @@ function list(value: string | undefined) {
 }
 
 export function selectedRetryJobIds(value: string | undefined) {
+  return selectedJobIds(value, "RETRY_JOB_IDS");
+}
+
+export function selectedJobIds(value: string | undefined, name: string) {
   const ids = list(value);
-  if (!ids.length) throw new Error("RETRY_JOB_IDS is required");
+  if (!ids.length) throw new Error(`${name} is required`);
   if (ids.length > 10)
-    throw new Error("At most 10 jobs may be retried at once");
+    throw new Error("At most 10 jobs may be selected at once");
   if (new Set(ids).size !== ids.length)
-    throw new Error("RETRY_JOB_IDS must not contain duplicates");
+    throw new Error(`${name} must not contain duplicates`);
   for (const id of ids)
     if (!/^automationjob_[a-f0-9]{24}$/.test(id))
       throw new Error(`Invalid automation job ID: ${id}`);
