@@ -101,6 +101,7 @@
     "automation:manual-discovery": "tsx src/orchestration/cli.ts manual-discovery",
     "automation:status": "tsx src/orchestration/cli.ts status",
     "automation:retry": "tsx src/orchestration/cli.ts retry",
+    "automation:retry-selected": "tsx src/orchestration/cli.ts retry-selected",
     "automation:cancel": "tsx src/orchestration/cli.ts cancel",
     "automation:readiness": "tsx src/orchestration/cli.ts readiness",
     "automation:audit": "tsx src/orchestration/cli.ts audit",

@@ -36,7 +36,12 @@ export async function main(args: string[]) {
       console.log(JSON.stringify(await jobs.list(undefined, 50), null, 2));
     else if (command === "retry")
       console.log(JSON.stringify(await jobs.retry(required(args[1])), null, 2));
-    else if (command === "cancel")
+    else if (command === "retry-selected") {
+      const retried = [];
+      for (const id of selectedRetryJobIds(process.env.RETRY_JOB_IDS))
+        retried.push(await jobs.retry(id));
+      console.log(JSON.stringify(retried, null, 2));
+    } else if (command === "cancel")
       console.log(
         JSON.stringify(await jobs.cancel(required(args[1])), null, 2),
       );
@@ -150,6 +155,19 @@ function list(value: string | undefined) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+export function selectedRetryJobIds(value: string | undefined) {
+  const ids = list(value);
+  if (!ids.length) throw new Error("RETRY_JOB_IDS is required");
+  if (ids.length > 10)
+    throw new Error("At most 10 jobs may be retried at once");
+  if (new Set(ids).size !== ids.length)
+    throw new Error("RETRY_JOB_IDS must not contain duplicates");
+  for (const id of ids)
+    if (!/^automationjob_[a-f0-9]{24}$/.test(id))
+      throw new Error(`Invalid automation job ID: ${id}`);
+  return ids;
 }
 
 const entry = process.argv[1];

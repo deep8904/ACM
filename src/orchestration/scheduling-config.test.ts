@@ -47,6 +47,7 @@ describe("free hosted scheduler configuration", () => {
         manual_test_id: { type: "string" },
         manual_window_start: { type: "string" },
         manual_window_end: { type: "string" },
+        retry_job_ids: { type: "string" },
       },
     });
     expect(concurrency).toEqual({
@@ -65,6 +66,14 @@ describe("free hosted scheduler configuration", () => {
         MANUAL_DISCOVERY_WINDOW_END: "${{ inputs.manual_window_end }}",
       },
       run: "npm run automation:manual-discovery",
+    });
+    expect(jobs.drain.steps).toContainEqual({
+      name: "Retry explicitly selected existing jobs",
+      if: "${{ github.event_name == 'workflow_dispatch' && inputs.migration_only != true && inputs.audit_only != true && inputs.retry_job_ids != '' }}",
+      env: {
+        RETRY_JOB_IDS: "${{ inputs.retry_job_ids }}",
+      },
+      run: "npm run automation:retry-selected",
     });
     expect(jobs.drain.steps).toContainEqual({
       name: "Reconcile and drain durable work",
