@@ -37,26 +37,80 @@ export function normalizeGeneratedArticle(
       continue;
     }
     const markers = heading[2]!.match(citationMarker) ?? [];
-    const text = stripCitationMarkers(heading[2]!);
+    const text = normalizeHeadingText(heading[2]!);
     mdx.push(`${heading[1]} ${text}`);
     if (markers.length) mdx.push("", markers.join(" "));
   }
+  const normalizedMdx = mdx.join("\n");
+  const actualOutline = [...normalizedMdx.matchAll(/^(#{2,4})\s+(.+)$/gm)].map(
+    (heading) => ({
+      level: heading[1]!.length,
+      text: heading[2]!.trim(),
+    }),
+  );
+  const declaredOutline = value.headingOutline.map((heading) => ({
+    ...heading,
+    text: normalizeHeadingText(heading.text),
+  }));
+  const declaredToActual = new Map<string, string>();
+  if (
+    actualOutline.length === declaredOutline.length &&
+    actualOutline.every(
+      (heading, index) => heading.level === declaredOutline[index]?.level,
+    )
+  )
+    for (const [index, heading] of declaredOutline.entries())
+      declaredToActual.set(
+        headingKey(heading.text),
+        actualOutline[index]!.text,
+      );
+  const actualByKey = new Map(
+    actualOutline.map((heading) => [headingKey(heading.text), heading.text]),
+  );
   return articleWritingResultSchema.parse({
     ...value,
-    mdx: mdx.join("\n"),
-    headingOutline: value.headingOutline.map((heading) => ({
-      ...heading,
-      text: stripCitationMarkers(heading.text),
-    })),
+    mdx: normalizedMdx,
+    headingOutline: actualOutline.length >= 2 ? actualOutline : declaredOutline,
     claimReferences: value.claimReferences.map((reference) => ({
       ...reference,
-      section: stripCitationMarkers(reference.section),
+      section: canonicalSection(
+        normalizeHeadingText(reference.section),
+        actualByKey,
+        declaredToActual,
+      ),
     })),
   });
 }
 
 function stripCitationMarkers(value: string) {
   return value.replace(citationMarker, "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeHeadingText(value: string) {
+  return stripCitationMarkers(value)
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[*_~`]/g, "")
+    .replace(/^\s*\d+[.)]\s+/, "")
+    .replace(/\s*[:—-]\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function headingKey(value: string) {
+  return value
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function canonicalSection(
+  section: string,
+  actualByKey: Map<string, string>,
+  declaredToActual: Map<string, string>,
+) {
+  const key = headingKey(section);
+  return actualByKey.get(key) ?? declaredToActual.get(key) ?? section;
 }
 
 function unwrapOuterMdxFence(value: string) {
