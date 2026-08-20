@@ -116,6 +116,37 @@ interface HttpProviderOptions {
   fetch?: typeof fetch;
   timeoutMs?: number;
 }
+
+const GROQ_TPM_LIMIT = 8_000;
+const GROQ_TPM_SAFETY_LIMIT = 7_500;
+const COMPLETION_TOKEN_BUDGET: Record<LlmStage, number> = {
+  research: 3_072,
+  writing: 4_096,
+  editorial_review: 1_536,
+  revision: 4_096,
+};
+
+function completionTokenBudget(stage: LlmStage) {
+  return COMPLETION_TOKEN_BUDGET[stage];
+}
+
+function estimatedPromptTokens(input: AIProviderRequest<unknown>) {
+  return Math.ceil(`${input.system}\n\n${requestText(input)}`.length / 3 + 64);
+}
+
+function jsonSchemaResponseFormat<T>(input: AIProviderRequest<T>) {
+  const schema = z.toJSONSchema(input.schema, { target: "draft-2020-12" });
+  delete schema.$schema;
+  return {
+    type: "json_schema",
+    json_schema: {
+      name: `acm_${input.stage}`,
+      strict: false,
+      schema,
+    },
+  };
+}
+
 const openAIEnvelopeSchema = z.object({
   choices: z.array(
     z.object({
@@ -151,6 +182,7 @@ abstract class OpenAICompatibleProvider extends StructuredAIProvider {
     this.timeoutMs = options.timeoutMs ?? 45_000;
   }
   async generate<T>(input: AIProviderRequest<T>): Promise<LlmGeneration<T>> {
+    const maxTokens = completionTokenBudget(input.stage);
     const response = await this.request(this.endpoint, {
       method: "POST",
       headers: {
@@ -163,11 +195,17 @@ abstract class OpenAICompatibleProvider extends StructuredAIProvider {
           { role: "system", content: input.system },
           { role: "user", content: requestText(input) },
         ],
-        response_format: { type: "json_object" },
-        max_tokens:
-          input.stage === "writing" || input.stage === "revision"
-            ? 16384
-            : 8192,
+        response_format: jsonSchemaResponseFormat(input),
+        max_tokens: maxTokens,
+        ...(this.model.startsWith("openai/gpt-oss-")
+          ? { reasoning_effort: "low" }
+          : {}),
+        ...(this.name === "openrouter"
+          ? {
+              plugins: [{ id: "response-healing" }],
+              provider: { require_parameters: true },
+            }
+          : {}),
       }),
     });
     const envelope = openAIEnvelopeSchema.parse(await response.json());
@@ -228,6 +266,15 @@ export class GroqAIProvider extends OpenAICompatibleProvider {
   override async generate<T>(
     input: AIProviderRequest<T>,
   ): Promise<LlmGeneration<T>> {
+    const estimatedTotal =
+      estimatedPromptTokens(input) + completionTokenBudget(input.stage);
+    if (estimatedTotal > GROQ_TPM_SAFETY_LIMIT)
+      throw new AIProviderError(
+        `Groq request budget exceeds the ${GROQ_TPM_LIMIT} TPM limit (estimated ${estimatedTotal} tokens for ${input.stage}); using fallback provider before sending the request`,
+        this.name,
+        "groq_request_budget_exceeded",
+        true,
+      );
     await (this.modelValidation ??= this.validateModelAccess());
     return super.generate(input);
   }
@@ -276,7 +323,10 @@ export class GroqAIProvider extends OpenAICompatibleProvider {
 export class OpenRouterAIProvider extends OpenAICompatibleProvider {
   readonly name = "openrouter";
   constructor(options: HttpProviderOptions) {
-    super(options, "https://openrouter.ai/api/v1/chat/completions");
+    super(
+      { ...options, timeoutMs: options.timeoutMs ?? 90_000 },
+      "https://openrouter.ai/api/v1/chat/completions",
+    );
   }
   override async healthCheck(): Promise<AIProviderHealth> {
     try {
@@ -344,10 +394,7 @@ export class GeminiAIProvider extends StructuredAIProvider {
             ],
             generationConfig: {
               responseMimeType: "application/json",
-              maxOutputTokens:
-                input.stage === "writing" || input.stage === "revision"
-                  ? 16384
-                  : 8192,
+              maxOutputTokens: completionTokenBudget(input.stage),
             },
           }),
         },
@@ -590,7 +637,7 @@ function validateStructuredOutput<T>(
       `${provider} returned no structured output`,
       provider,
       `${provider}_invalid_output`,
-      false,
+      true,
     );
   let parsed: unknown;
   try {
@@ -600,7 +647,7 @@ function validateStructuredOutput<T>(
       `${provider} returned invalid JSON`,
       provider,
       `${provider}_invalid_output`,
-      false,
+      true,
     );
   }
   const result = schema.safeParse(parsed);
@@ -609,7 +656,7 @@ function validateStructuredOutput<T>(
       `LLM structured output failed validation: ${result.error.issues[0]?.message ?? "unknown schema error"}`,
       provider,
       `${provider}_schema_rejected`,
-      false,
+      true,
     );
   return result.data;
 }

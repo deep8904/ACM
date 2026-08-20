@@ -338,7 +338,7 @@ export class AutomationWorker {
         stage: "research",
         system:
           "Synthesize only the supplied evidence. Every interpretation or prediction must cite existing source and excerpt IDs. Preserve unresolved uncertainty.",
-        task: withSchema(task, assistedResearchResultSchema, {
+        task: withTaskRequirements(task, {
           generatedAt: new Date().toISOString(),
         }),
         schema: assistedResearchResultSchema,
@@ -418,7 +418,7 @@ export class AutomationWorker {
       stage: "writing",
       system:
         "Write one complete source-grounded article. Use citation markers exactly as required. Every claimReferences[].section must exactly match an H2-H4 heading in mdx. Attach a source to a claim reference only when that research claim lists the source in its sourceIds. Keep facts, analysis, opinion, and predictions distinct. Do not claim hands-on experience.",
-      task: withSchema(task, articleWritingResultSchema, {
+      task: withTaskRequirements(task, {
         taskHash: prepared.job.taskHash,
       }),
       schema: articleWritingResultSchema,
@@ -468,7 +468,7 @@ export class AutomationWorker {
       stage: "editorial_review",
       system:
         "Perform a rigorous evidence-bound editorial review. Deterministic blockers are authoritative. Every issue ID must be deterministic-looking and all referenced source/claim IDs must already exist. For each issue, either leave section null or copy it exactly from allowedArticleSections.",
-      task: withSchema(task, editorialReviewImportSchema, {
+      task: withTaskRequirements(task, {
         requiredIdentity: {
           id: `review_${sha256(`${(task as { draftId?: string })?.draftId}:${draftVersion}`).slice(0, 24)}`,
           taskHash: prepared.job.taskHash,
@@ -532,7 +532,7 @@ export class AutomationWorker {
       stage: "revision",
       system:
         "Apply only the requested revision scope. Copy topicId, sourceDraftId, sourceDraftVersion, and revisionScope exactly from the task; set provenance.taskHash to requiredTaskHash exactly. Preserve protected claims and required source IDs. Return the complete revised MDX body when body changes are allowed.",
-      task: withSchema(task, revisionResultSchema, {
+      task: withTaskRequirements(task, {
         requiredTaskHash: taskHash,
         requiredIdentity: {
           topicId: (task as { topicId?: string }).topicId,
@@ -944,15 +944,10 @@ function classify(error: unknown) {
   };
 }
 
-function withSchema<T>(
-  task: unknown,
-  schema: z.ZodType<T>,
-  extra: Record<string, unknown>,
-) {
+function withTaskRequirements(task: unknown, extra: Record<string, unknown>) {
   return {
     task,
     ...extra,
-    outputJsonSchema: z.toJSONSchema(schema, { target: "draft-2020-12" }),
   };
 }
 
