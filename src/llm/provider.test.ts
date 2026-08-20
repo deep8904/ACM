@@ -9,6 +9,7 @@ import {
   GroqAIProvider,
   LlmProviderConfigurationError,
   OpenRouterAIProvider,
+  resolveGroqModel,
   resolveGeminiModel,
 } from "./provider";
 
@@ -135,6 +136,35 @@ describe("AI provider failover", () => {
     expect(result.fallbackReason).toBe("groq_unavailable");
   });
 
+  it("falls back before generation when the configured Groq model is inaccessible", async () => {
+    let groqCalls = 0;
+    const groq = new GroqAIProvider({
+      apiKey: "groq-key",
+      model: "openai/gpt-oss-120b",
+      fetch: async () => {
+        groqCalls += 1;
+        return Response.json(
+          { error: { message: "model does not exist" } },
+          { status: 404 },
+        );
+      },
+    });
+    const openrouter = new OpenRouterAIProvider({
+      apiKey: "openrouter-key",
+      model: "openrouter-test",
+      fetch: async () => success(),
+    });
+
+    const result = await new FailoverAIProvider([groq, openrouter]).generate(
+      request,
+    );
+
+    expect(groqCalls).toBe(1);
+    expect(result.provider).toBe("openrouter");
+    expect(result.fallbackUsed).toBe(true);
+    expect(result.fallbackReason).toBe("groq_model_unavailable");
+  });
+
   it("reports every failure when all providers are unavailable", async () => {
     const providers = [
       new GroqAIProvider({
@@ -210,7 +240,72 @@ describe("configured provider chain", () => {
       GEMINI_API_KEY: "m",
     });
     expect(provider.name).toBe("provider_chain");
-    expect(provider.model).toBe("llama-3.3-70b-versatile");
+    expect(provider.model).toBe("openai/gpt-oss-120b");
+  });
+
+  it("rejects a retired Groq model before making a provider request", () => {
+    expect(() =>
+      createConfiguredLlmProvider({
+        NODE_ENV: "test",
+        GROQ_API_KEY: "g",
+        GROQ_MODEL: "llama-3.3-70b-versatile",
+      }),
+    ).toThrow(
+      'Unsupported GROQ_MODEL "llama-3.3-70b-versatile". Supported production models: openai/gpt-oss-120b, openai/gpt-oss-20b',
+    );
+  });
+
+  it("validates exact Groq model access and uses it for every AI stage", async () => {
+    const urls: string[] = [];
+    const generationModels: string[] = [];
+    const provider = new GroqAIProvider({
+      apiKey: "groq-key",
+      model: resolveGroqModel(undefined),
+      fetch: async (input, init) => {
+        const url = String(input);
+        urls.push(url);
+        if (url.includes("/models/"))
+          return Response.json({ id: "openai/gpt-oss-120b", active: true });
+        generationModels.push(
+          String((JSON.parse(String(init?.body)) as { model?: string }).model),
+        );
+        return success();
+      },
+    });
+
+    await provider.summarize({ ...request, stage: "research" });
+    await provider.generate({ ...request, stage: "writing" });
+    await provider.review({ ...request, stage: "editorial_review" });
+    await provider.generate({ ...request, stage: "revision" });
+
+    expect(urls[0]).toBe(
+      "https://api.groq.com/openai/v1/models/openai/gpt-oss-120b",
+    );
+    expect(generationModels).toEqual([
+      "openai/gpt-oss-120b",
+      "openai/gpt-oss-120b",
+      "openai/gpt-oss-120b",
+      "openai/gpt-oss-120b",
+    ]);
+  });
+
+  it("returns a clear health diagnostic when the configured Groq model is inaccessible", async () => {
+    const provider = new GroqAIProvider({
+      apiKey: "groq-key",
+      model: "openai/gpt-oss-120b",
+      fetch: async () =>
+        Response.json(
+          { error: { message: "model does not exist" } },
+          { status: 404 },
+        ),
+    });
+
+    await expect(provider.healthCheck()).resolves.toMatchObject({
+      available: false,
+      failureReason: "groq_model_unavailable",
+      diagnostic:
+        'Groq model configuration invalid: model "openai/gpt-oss-120b" is unavailable or not accessible to this project',
+    });
   });
 
   it("rejects an empty provider configuration", () => {
