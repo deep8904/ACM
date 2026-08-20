@@ -367,6 +367,27 @@ describe("AI provider failover", () => {
     expect(result.fallbackReason).toBe("groq_schema_rejected");
   });
 
+  it("applies a task-owned output normalizer before schema validation", async () => {
+    const provider = new OpenRouterAIProvider({
+      apiKey: "o",
+      model: "o",
+      fetch: async () =>
+        Response.json({
+          choices: [{ message: { content: '{"answer":"wrong"}' } }],
+        }),
+    });
+
+    await expect(
+      provider.generate({
+        ...request,
+        normalizeOutput: (value) => ({
+          ...(value as Record<string, unknown>),
+          answer: "safe",
+        }),
+      }),
+    ).resolves.toMatchObject({ value: { answer: "safe" } });
+  });
+
   it("uses Bytez after earlier providers are unavailable", async () => {
     const gemini = new GeminiAIProvider({
       apiKey: "gemini-key",
