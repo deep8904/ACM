@@ -288,6 +288,28 @@ describe("Milestone 5 writing boundary", () => {
     });
   });
 
+  it("aligns declared claim sections to the corresponding generated headings", () => {
+    const base = result();
+    const generated = result({
+      mdx: base.mdx
+        .replace("## Event", "## **What happened:**")
+        .replace("## Context", "## Why it matters"),
+      headingOutline: base.headingOutline.map((heading) =>
+        heading.text === "Event"
+          ? { ...heading, text: "Event" }
+          : heading.text === "Context"
+            ? { ...heading, text: "Context" }
+            : heading,
+      ),
+    });
+
+    const normalized = normalizeGeneratedArticle(generated);
+
+    expect(normalized.mdx).toContain("## What happened");
+    expect(normalized.headingOutline[0]?.text).toBe("What happened");
+    expect(normalized.claimReferences[0]?.section).toBe("What happened");
+  });
+
   it("compresses a large research packet without losing evidence and fits the Groq route", async () => {
     const config = await loadWritingConfig(
       "automation/config/writing.example.yaml",
