@@ -80,6 +80,36 @@ export class PostgresAutomationJobRepository {
     return rows[0] ? fromRow(rows[0]) : undefined;
   }
 
+  async claimSelected(
+    workerId: string,
+    leaseMs: number,
+    jobIds: string[],
+  ): Promise<AutomationJob | undefined> {
+    if (!jobIds.length) return undefined;
+    const rows = await this.sql<JobRow[]>`
+      with candidate as (
+        select id from content_machine.automation_jobs
+        where id in ${this.sql(jobIds)}
+          and available_at <= now()
+          and (
+            status in ('queued','retryable')
+            or (status='running' and lease_expires_at < now())
+          )
+          and attempt < maximum_attempts
+        order by available_at, created_at, id
+        for update skip locked
+        limit 1
+      )
+      update content_machine.automation_jobs j
+      set status='running', lease_owner=${workerId},
+          lease_expires_at=now() + (${leaseMs} * interval '1 millisecond'),
+          heartbeat_at=now(), started_at=coalesce(started_at,now()),
+          attempt=attempt+1, updated_at=now(), version=version+1
+      from candidate where j.id=candidate.id returning j.*
+    `;
+    return rows[0] ? fromRow(rows[0]) : undefined;
+  }
+
   async heartbeat(
     id: string,
     workerId: string,

@@ -10,7 +10,11 @@ import {
   topicQueueItemSchema,
 } from "../../telegram/models";
 import type { ApprovedEventRepository } from "../interfaces";
-import { importAssistance, writeAssistanceTask } from "../assisted";
+import {
+  importAssistance,
+  normalizeAssistedClaimTimestamps,
+  writeAssistanceTask,
+} from "../assisted";
 import { ResearchService } from "../service";
 import { extractDocument } from "../extract";
 import { GitHubJsonContentExtractor } from "../github-adapter";
@@ -30,6 +34,30 @@ import {
 } from "../storage";
 
 describe("research models and extraction", () => {
+  it("normalizes timezone offsets and rejects future claim timestamps without crashing", () => {
+    const normalized = normalizeAssistedClaimTimestamps(
+      {
+        interpretations: [
+          { id: "claim_offset", createdAt: "2026-08-06T07:00:00-05:00" },
+          { id: "claim_future", createdAt: "2099-01-01T00:00:00+14:00" },
+        ],
+        predictions: [{ id: "claim_missing" }],
+      },
+      "2026-08-06T12:30:00.000Z",
+    );
+    const claims = (
+      normalized.value as { interpretations: Record<string, unknown>[] }
+    ).interpretations;
+    expect(claims[0]?.createdAt).toBe("2026-08-06T12:00:00.000Z");
+    expect(claims[1]?.createdAt).toBe("2026-08-06T12:30:00.000Z");
+    expect(normalized.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("future timestamp"),
+        expect.stringContaining("lacked a timezone"),
+      ]),
+    );
+  });
+
   it("rejects evidence without a source", () =>
     expect(() => evidenceClaimSchema.parse({})).toThrow());
   it("removes boilerplate and extracts metadata", () => {
@@ -540,7 +568,7 @@ describe("approved event to assisted packet integration", () => {
           status: "partially_supported",
           disagreementSourceIds: [],
           notes: ["Manual synthesis"],
-          createdAt: now,
+          createdAt: "2099-01-01T00:00:00+14:00",
         },
       ],
       predictions: [],
@@ -562,7 +590,18 @@ describe("approved event to assisted packet integration", () => {
     );
     expect(imported.status).toBe("ready");
     expect(imported.interpretations).toEqual(
-      expect.arrayContaining([...result.interpretations]),
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: result.interpretations[0].id,
+          createdAt: now,
+          notes: expect.arrayContaining([
+            expect.stringContaining("future timestamp"),
+          ]),
+        }),
+      ]),
+    );
+    expect(imported.warnings).toContainEqual(
+      expect.stringContaining("future timestamp"),
     );
     expect(imported.version).toBe(2);
     expect(imported.id).toBe(first.id);

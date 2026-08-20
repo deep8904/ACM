@@ -167,7 +167,8 @@ export async function importAssistance(
 ) {
   const raw = await readFile(path, "utf8");
   const importHash = createHash("sha256").update(raw).digest("hex");
-  const result = assistedResearchResultSchema.parse(JSON.parse(raw));
+  const normalized = normalizeAssistedClaimTimestamps(JSON.parse(raw), now);
+  const result = assistedResearchResultSchema.parse(normalized.value);
   const existing = await packets.getByImportHash(result.topicId, importHash);
   if (existing && !imports) return existing;
   const base = await packets.get(result.topicId, result.sourcePacketVersion);
@@ -198,8 +199,6 @@ export async function importAssistance(
       claim.supportingExcerptIds.some((id) => !excerptIds.has(id))
     )
       throw new Error(`Imported claim ${claim.id} references unknown evidence`);
-    if (Date.parse(claim.createdAt) > Date.parse(now) + 60_000)
-      throw new Error(`Imported claim ${claim.id} has a future timestamp`);
   }
   const version = await packets.nextVersion(base.topicId);
   const blockingReasons = resolvePrimaryBlockingReasons(
@@ -254,6 +253,7 @@ export async function importAssistance(
     recommendedStructure: result.recommendedStructure,
     sufficient,
     blockingReasons,
+    warnings: [...new Set([...base.warnings, ...normalized.diagnostics])],
     researchSufficiency,
     provenance: {
       deterministic: false,
@@ -269,6 +269,59 @@ export async function importAssistance(
   await packets.save(next);
   await events.consume(next.approvedEventId, next.id, next.version, now);
   return next;
+}
+
+export function normalizeAssistedClaimTimestamps(value: unknown, now: string) {
+  const importTime = Date.parse(now);
+  if (!Number.isFinite(importTime))
+    throw new Error(`Invalid assisted research import time: ${now}`);
+  const diagnostics: string[] = [];
+  if (!value || typeof value !== "object") return { value, diagnostics };
+  const root = value as Record<string, unknown>;
+  const normalizeClaims = (input: unknown) =>
+    Array.isArray(input)
+      ? input.map((item) => {
+          if (!item || typeof item !== "object") return item;
+          const claim = item as Record<string, unknown>;
+          const claimId =
+            typeof claim.id === "string" ? claim.id : "unknown claim";
+          const supplied = claim.createdAt;
+          const hasTimezone =
+            typeof supplied === "string" &&
+            /T.*(?:Z|[+-]\d{2}:\d{2})$/i.test(supplied);
+          const parsed =
+            hasTimezone && typeof supplied === "string"
+              ? Date.parse(supplied)
+              : Number.NaN;
+          let createdAt: string;
+          let diagnostic: string | undefined;
+          if (!Number.isFinite(parsed)) {
+            createdAt = new Date(importTime).toISOString();
+            diagnostic = `Imported claim ${claimId} timestamp was missing, invalid, or lacked a timezone; normalized to import time ${createdAt}`;
+          } else if (parsed > importTime) {
+            createdAt = new Date(importTime).toISOString();
+            diagnostic = `Imported claim ${claimId} future timestamp ${String(supplied)} was rejected; normalized to import time ${createdAt}`;
+          } else {
+            createdAt = new Date(parsed).toISOString();
+          }
+          if (diagnostic) diagnostics.push(diagnostic);
+          return {
+            ...claim,
+            createdAt,
+            notes: diagnostic
+              ? [...(Array.isArray(claim.notes) ? claim.notes : []), diagnostic]
+              : claim.notes,
+          };
+        })
+      : input;
+  return {
+    value: {
+      ...root,
+      interpretations: normalizeClaims(root.interpretations),
+      predictions: normalizeClaims(root.predictions),
+    },
+    diagnostics,
+  };
 }
 
 export async function repairPrimaryBlockingState(

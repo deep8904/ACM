@@ -28,6 +28,7 @@ export const CRITICAL_TABLES = [
   "automation_jobs",
   "automation_heartbeats",
   "llm_invocations",
+  "pipeline_audit_events",
   "research_remediation_conversations",
   "research_remediation_events",
   "research_retrieval_host_state",

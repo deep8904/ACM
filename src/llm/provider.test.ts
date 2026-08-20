@@ -209,6 +209,66 @@ describe("AI provider failover", () => {
     expect(result.fallbackReason).toBe("groq_request_budget_exceeded");
   });
 
+  it("routes medium requests to OpenRouter without sending them to Groq", async () => {
+    let groqCalls = 0;
+    let openRouterCalls = 0;
+    const groq = new GroqAIProvider({
+      apiKey: "groq-key",
+      model: "openai/gpt-oss-120b",
+      fetch: async () => {
+        groqCalls += 1;
+        return success();
+      },
+    });
+    const openrouter = new OpenRouterAIProvider({
+      apiKey: "openrouter-key",
+      model: "openrouter-test",
+      fetch: async () => {
+        openRouterCalls += 1;
+        return success();
+      },
+    });
+
+    const result = await new FailoverAIProvider([groq, openrouter]).generate({
+      ...request,
+      task: { evidence: "x".repeat(30_000) },
+    });
+
+    expect(groqCalls).toBe(0);
+    expect(openRouterCalls).toBe(1);
+    expect(result.provider).toBe("openrouter");
+  });
+
+  it("does not send a large unprepared request to any provider", async () => {
+    let calls = 0;
+    const providers = [
+      new GroqAIProvider({
+        apiKey: "g",
+        model: "openai/gpt-oss-120b",
+        fetch: async () => {
+          calls += 1;
+          return success();
+        },
+      }),
+      new OpenRouterAIProvider({
+        apiKey: "o",
+        model: "o",
+        fetch: async () => {
+          calls += 1;
+          return success();
+        },
+      }),
+    ];
+
+    await expect(
+      new FailoverAIProvider(providers).generate({
+        ...request,
+        task: { evidence: "x".repeat(60_000) },
+      }),
+    ).rejects.toMatchObject({ reason: "llm_request_requires_compression" });
+    expect(calls).toBe(0);
+  });
+
   it("falls back before generation when the configured Groq model is inaccessible", async () => {
     let groqCalls = 0;
     const groq = new GroqAIProvider({

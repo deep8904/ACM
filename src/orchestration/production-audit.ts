@@ -176,6 +176,57 @@ export async function auditProductionResearch(
         order by topic_id,retrieved_at,id
       `
     : [];
+  const drafts = topicIds.length
+    ? await sql<
+        {
+          id: string;
+          topic_id: string;
+          draft_version: number;
+          research_version: number;
+          payload: Json;
+          created_at: DateValue;
+        }[]
+      >`
+        select id,topic_id,draft_version,research_version,payload,created_at
+        from content_machine.article_drafts where topic_id in ${sql(topicIds)}
+        order by topic_id,draft_version
+      `
+    : [];
+  const editorialReviews = topicIds.length
+    ? await sql<
+        {
+          id: string;
+          topic_id: string;
+          draft_version: number;
+          review_version: number;
+          payload: Json;
+          created_at: DateValue;
+        }[]
+      >`
+        select id,topic_id,draft_version,review_version,payload,created_at
+        from content_machine.editorial_reviews where topic_id in ${sql(topicIds)}
+        order by topic_id,draft_version,review_version
+      `
+    : [];
+  const finalApprovals = topicIds.length
+    ? await sql<
+        {
+          id: string;
+          short_id: string;
+          topic_id: string;
+          draft_version: number;
+          review_version: number;
+          status: string;
+          content_hash: string;
+          payload: Json;
+          created_at: DateValue;
+        }[]
+      >`
+        select id,short_id,topic_id,draft_version,review_version,status,content_hash,payload,created_at
+        from content_machine.final_approvals where topic_id in ${sql(topicIds)}
+        order by topic_id,draft_version,review_version
+      `
+    : [];
   const invocations = jobIds.length
     ? await sql<
         {
@@ -202,6 +253,24 @@ export async function auditProductionResearch(
           attempt_index,fallback_used,fallback_reason,failure_reason,
           prompt_tokens,completion_tokens,total_tokens,created_at,completed_at
         from content_machine.llm_invocations where job_id in ${sql(jobIds)}
+        order by created_at,id
+      `
+    : [];
+  const pipelineAuditEvents = jobIds.length
+    ? await sql<
+        {
+          id: string;
+          job_id: string;
+          stage: string;
+          event_type: string;
+          input_hash: string;
+          output_hash: string;
+          details: Json;
+          created_at: DateValue;
+        }[]
+      >`
+        select id,job_id,stage,event_type,input_hash,output_hash,details,created_at
+        from content_machine.pipeline_audit_events where job_id in ${sql(jobIds)}
         order by created_at,id
       `
     : [];
@@ -346,8 +415,31 @@ export async function auditProductionResearch(
         "rawMetadata",
       ]),
     })),
+    articleDrafts: drafts.map((row) => ({
+      ...without(row, "payload"),
+      payload: pick(row.payload, [
+        "status",
+        "publishedAt",
+        "canonicalUrl",
+        "supersedesVersion",
+      ]),
+    })),
+    editorialReviews: editorialReviews.map((row) => ({
+      ...without(row, "payload"),
+      payload: pick(row.payload, ["decision", "summary", "version"]),
+    })),
+    finalApprovals: finalApprovals.map((row) => ({
+      ...without(row, "payload"),
+      payload: pick(row.payload, [
+        "status",
+        "draftVersion",
+        "reviewVersion",
+        "expiresAt",
+      ]),
+    })),
     discoverySources,
     llmInvocations: invocations,
+    pipelineAuditEvents,
     remediationConversations: remediationConversations.map((row) => ({
       ...without(row, "payload"),
       payload: pick(row.payload, [
