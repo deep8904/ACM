@@ -13,6 +13,7 @@ import type { ApprovedEventRepository } from "../interfaces";
 import {
   importAssistance,
   normalizeAssistedClaimTimestamps,
+  normalizeImportedClaimIds,
   writeAssistanceTask,
 } from "../assisted";
 import { ResearchService } from "../service";
@@ -34,6 +35,42 @@ import {
 } from "../storage";
 
 describe("research models and extraction", () => {
+  it("normalizes colliding imported claim IDs without losing evidence", () => {
+    const base = evidenceClaimSchema.parse({
+      id: "claim_aaaaaaaaaaaaaaaaaaaaaaaa",
+      topicId: "topic_fixture",
+      statement: "Existing fact",
+      normalizedStatement: "existing fact",
+      claimType: "fact",
+      sourceIds: ["source_aaaaaaaaaaaaaaaaaaaaaaaa"],
+      supportingExcerptIds: ["excerpt_1"],
+      confidence: 0.9,
+      status: "supported",
+      disagreementSourceIds: [],
+      notes: [],
+      createdAt: "2026-08-06T12:00:00.000Z",
+    });
+    const imported = evidenceClaimSchema.parse({
+      ...base,
+      statement: "Different interpretation",
+      normalizedStatement: "different interpretation",
+      claimType: "interpretation",
+    });
+
+    const normalized = normalizeImportedClaimIds([imported], [], [base]);
+
+    expect(normalized.interpretations).toHaveLength(1);
+    expect(normalized.interpretations[0]?.id).toMatch(/^claim_[a-f0-9]{24}$/);
+    expect(normalized.interpretations[0]?.id).not.toBe(base.id);
+    expect(normalized.interpretations[0]?.sourceIds).toEqual(
+      imported.sourceIds,
+    );
+    expect(normalized.interpretations[0]?.supportingExcerptIds).toEqual(
+      imported.supportingExcerptIds,
+    );
+    expect(normalized.diagnostics[0]).toContain("collided");
+  });
+
   it("normalizes timezone offsets and rejects future claim timestamps without crashing", () => {
     const normalized = normalizeAssistedClaimTimestamps(
       {

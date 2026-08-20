@@ -16,6 +16,7 @@ import {
 } from "../models";
 import { loadWritingConfig } from "../config";
 import { inspectMdx } from "../mdx";
+import { normalizeGeneratedArticle } from "../normalize-generated";
 import { WritingService } from "../service";
 import { selectArticleType } from "../article-type";
 import {
@@ -226,6 +227,28 @@ function result(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Milestone 5 writing boundary", () => {
+  it("moves heading citations into the body and aligns section identities", () => {
+    const generated = result({
+      mdx: result().mdx.replace("## Event", `## Event [source:${sourceId}]`),
+      headingOutline: result().headingOutline.map((heading) =>
+        heading.text === "Event"
+          ? { ...heading, text: `Event [source:${sourceId}]` }
+          : heading,
+      ),
+      claimReferences: result().claimReferences.map((reference) => ({
+        ...reference,
+        section: `Event [source:${sourceId}]`,
+      })),
+    });
+
+    const normalized = normalizeGeneratedArticle(generated);
+
+    expect(normalized.mdx).toContain(`## Event\n\n[source:${sourceId}]`);
+    expect(normalized.mdx).not.toContain(`## Event [source:${sourceId}]`);
+    expect(normalized.headingOutline[0]?.text).toBe("Event");
+    expect(normalized.claimReferences[0]?.section).toBe("Event");
+  });
+
   it("compresses a large research packet without losing evidence and fits the Groq route", async () => {
     const config = await loadWritingConfig(
       "automation/config/writing.example.yaml",

@@ -180,18 +180,23 @@ export async function importAssistance(
   const excerptIds = new Set(
     base.sourceIndex.flatMap((s) => s.selectedExcerpts.map((e) => e.id)),
   );
-  const imported = [...result.interpretations, ...result.predictions];
-  const ids = new Set<string>(
-    [
-      ...base.facts,
-      ...base.interpretations,
-      ...base.predictions,
-      ...base.communityObservations,
-    ].map((claim) => claim.id),
+  const baseClaims = [
+    ...base.facts,
+    ...base.interpretations,
+    ...base.predictions,
+    ...base.communityObservations,
+  ];
+  const collisionNormalized = normalizeImportedClaimIds(
+    result.interpretations,
+    result.predictions,
+    baseClaims,
   );
+  const imported = [
+    ...collisionNormalized.interpretations,
+    ...collisionNormalized.predictions,
+  ];
+  const ids = new Set<string>(baseClaims.map((claim) => claim.id));
   for (const claim of imported) {
-    if (ids.has(claim.id))
-      throw new Error(`Duplicate imported claim: ${claim.id}`);
     ids.add(claim.id);
     if (
       claim.topicId !== base.topicId ||
@@ -229,13 +234,13 @@ export async function importAssistance(
     components,
     explanation: [
       ...base.researchSufficiency.explanation,
-      `${imported.length} manually assisted claim(s) validated`,
+      `${imported.length} new manually assisted claim(s) validated`,
     ],
   };
   const sufficient =
     score >= researchSufficiency.threshold &&
     blockingReasons.length === 0 &&
-    imported.length > 0;
+    base.interpretations.length + base.predictions.length + imported.length > 0;
   const next = researchPacketSchema.parse({
     ...base,
     version,
@@ -243,8 +248,11 @@ export async function importAssistance(
     status: sufficient ? "ready" : "insufficient",
     researchMode: "assisted_import",
     executiveSummary: result.executiveSummary,
-    interpretations: mergeClaims(base.interpretations, result.interpretations),
-    predictions: mergeClaims(base.predictions, result.predictions),
+    interpretations: mergeClaims(
+      base.interpretations,
+      collisionNormalized.interpretations,
+    ),
+    predictions: mergeClaims(base.predictions, collisionNormalized.predictions),
     counterpoints: result.counterpoints,
     unknowns: [...new Set([...base.unknowns, ...result.unknowns])],
     conflicts: base.conflicts,
@@ -253,7 +261,13 @@ export async function importAssistance(
     recommendedStructure: result.recommendedStructure,
     sufficient,
     blockingReasons,
-    warnings: [...new Set([...base.warnings, ...normalized.diagnostics])],
+    warnings: [
+      ...new Set([
+        ...base.warnings,
+        ...normalized.diagnostics,
+        ...collisionNormalized.diagnostics,
+      ]),
+    ],
     researchSufficiency,
     provenance: {
       deterministic: false,
@@ -269,6 +283,83 @@ export async function importAssistance(
   await packets.save(next);
   await events.consume(next.approvedEventId, next.id, next.version, now);
   return next;
+}
+
+export function normalizeImportedClaimIds<
+  T extends {
+    id: string;
+    statement: string;
+    normalizedStatement: string;
+    claimType: string;
+    sourceIds: string[];
+    supportingExcerptIds: string[];
+    notes: string[];
+  },
+>(interpretations: T[], predictions: T[], baseClaims: T[]) {
+  const diagnostics: string[] = [];
+  const existing = new Map(baseClaims.map((claim) => [claim.id, claim]));
+  const normalize = (claims: T[]) =>
+    claims.flatMap((claim) => {
+      const collision = existing.get(claim.id);
+      if (!collision) {
+        existing.set(claim.id, claim);
+        return [claim];
+      }
+      if (sameClaim(collision, claim)) {
+        diagnostics.push(
+          `Imported claim ${claim.id} duplicated existing evidence and was reused`,
+        );
+        return [];
+      }
+      let salt = 0;
+      let id: string;
+      do {
+        id = `claim_${createHash("sha256")
+          .update(
+            `${claim.id}:${claim.normalizedStatement}:${claim.claimType}:${salt}`,
+          )
+          .digest("hex")
+          .slice(0, 24)}`;
+        salt += 1;
+      } while (existing.has(id));
+      const diagnostic = `Imported claim ID ${claim.id} collided with different existing evidence; normalized to ${id}`;
+      const normalized = {
+        ...claim,
+        id,
+        notes: [...claim.notes, diagnostic],
+      };
+      existing.set(id, normalized);
+      diagnostics.push(diagnostic);
+      return [normalized];
+    });
+  return {
+    interpretations: normalize(interpretations),
+    predictions: normalize(predictions),
+    diagnostics,
+  };
+}
+
+function sameClaim(
+  left: {
+    normalizedStatement: string;
+    claimType: string;
+    sourceIds: string[];
+    supportingExcerptIds: string[];
+  },
+  right: {
+    normalizedStatement: string;
+    claimType: string;
+    sourceIds: string[];
+    supportingExcerptIds: string[];
+  },
+) {
+  return (
+    left.normalizedStatement === right.normalizedStatement &&
+    left.claimType === right.claimType &&
+    [...left.sourceIds].sort().join() === [...right.sourceIds].sort().join() &&
+    [...left.supportingExcerptIds].sort().join() ===
+      [...right.supportingExcerptIds].sort().join()
+  );
 }
 
 export function normalizeAssistedClaimTimestamps(value: unknown, now: string) {
