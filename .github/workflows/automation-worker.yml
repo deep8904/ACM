@@ -97,7 +97,7 @@ jobs:
       GROQ_MODEL: ${{ vars.GROQ_MODEL || 'openai/gpt-oss-120b' }}
       OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openai/gpt-oss-120b' }}
       GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.6-flash' }}
-      BYTEZ_MODEL: ${{ vars.BYTEZ_MODEL || 'Qwen/Qwen3-4B' }}
+      BYTEZ_MODEL: ${{ vars.BYTEZ_MODEL || 'unsloth/Qwen3-8B' }}
       AUTOMATION_MAX_JOBS_PER_RUN: "4"
       AUTOMATION_LEASE_MINUTES: "30"
     steps:

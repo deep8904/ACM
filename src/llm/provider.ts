@@ -375,7 +375,7 @@ export class OpenRouterAIProvider extends OpenAICompatibleProvider {
   }
 }
 
-const BYTEZ_DEFAULT_MODEL = "Qwen/Qwen3-4B";
+const BYTEZ_DEFAULT_MODEL = "unsloth/Qwen3-8B";
 const bytezModelListSchema = z.object({
   error: z.unknown().nullable().optional(),
   output: z.array(z.object({ modelId: z.string() })),
@@ -431,14 +431,19 @@ export class BytezAIProvider extends OpenAICompatibleProvider {
       { headers: { authorization: this.options.apiKey } },
     );
     const models = bytezModelListSchema.parse(await response.json());
-    if (!models.output.some(({ modelId }) => modelId === this.model))
+    if (!models.output.some(({ modelId }) => modelId === this.model)) {
+      const accessibleModels = models.output
+        .slice(0, 5)
+        .map(({ modelId }) => modelId)
+        .join(", ");
       throw new AIProviderError(
-        `Bytez model configuration invalid: model "${this.model}" is unavailable or not accessible to this project`,
+        `Bytez model configuration invalid: model "${this.model}" is unavailable or not accessible to this project. Accessible chat models include: ${accessibleModels || "none returned"}`,
         this.name,
         "bytez_model_unavailable",
         true,
         404,
       );
+    }
   }
 }
 
