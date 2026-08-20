@@ -333,7 +333,7 @@ export class AutomationWorker {
         packet.topicId,
         packet.version,
       );
-      const generated = await this.provider.generate({
+      const generated = await this.provider.summarize({
         jobId: job.id,
         stage: "research",
         system:
@@ -463,7 +463,7 @@ export class AutomationWorker {
       topicId,
       draftVersion,
     );
-    const generated = await this.provider.generate({
+    const generated = await this.provider.review({
       jobId: job.id,
       stage: "editorial_review",
       system:
@@ -751,14 +751,17 @@ export class AutomationWorker {
         // diagnostics already remain attached to the durable automation job.
       }
     }
-    const safe = summary
-      .replace(/https?:\/\/[^\s]+/g, "[redacted URL]")
-      .slice(0, 500);
     for (const chatId of this.telegramConfig.TELEGRAM_ALLOWED_CHAT_IDS)
       await this.telegram
         .sendStatusMessage(
           chatId,
-          `<b>${escape(job.type)} failed</b>\n${escape(safe)}\nReference: ${escape(diagnosticId)}\n${escape(operatorAction ?? `Use /retry ${job.id} after correcting readiness, or /system_status.`)}`,
+          formatAutomationRecoveryMessage({
+            jobType: job.type,
+            jobId: job.id,
+            diagnosticId,
+            summary,
+            operatorAction,
+          }),
         )
         .catch(() => undefined);
   }
@@ -909,7 +912,7 @@ function classify(error: unknown) {
   const summary =
     error instanceof Error ? error.message : "Unknown automation failure";
   const missingCredential =
-    /(?:required|not configured|missing).*(?:key|token|credential)|GOOGLE_AI_API_KEY/i.test(
+    /(?:required|not configured|missing).*(?:key|token|credential)|(?:GROQ|OPENROUTER|GEMINI|GOOGLE_AI)_API_KEY/i.test(
       summary,
     );
   const blocked =
@@ -991,6 +994,19 @@ function numberPayload(job: AutomationJob, key: string) {
 function requiredTopic(job: AutomationJob) {
   if (!job.topicId) throw new Error("Automation job is missing topic lineage");
   return job.topicId;
+}
+
+export function formatAutomationRecoveryMessage(input: {
+  jobType: string;
+  jobId: string;
+  diagnosticId: string;
+  summary: string;
+  operatorAction?: string;
+}) {
+  const safe = input.summary
+    .replace(/https?:\/\/[^\s]+/g, "[redacted URL]")
+    .slice(0, 500);
+  return `<b>${escape(input.jobType)} failed</b>\n${escape(safe)}\nReference: ${escape(input.diagnosticId)}\n${escape(input.operatorAction ?? `Use /retry ${input.jobId} after correcting readiness, or /system_status.`)}`;
 }
 
 function escape(value: string) {

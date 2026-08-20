@@ -55,13 +55,13 @@ The current topic batch is a durable ranking set, not whichever ranking artifact
 - Vercel Hobby: stable HTTPS Telegram webhook, health endpoint, signed private previews, and authenticated control routes. No Vercel-native cron is required and no Pro upgrade is needed.
 - GitHub Actions: primary scheduler, reconciler, and lease-based worker every fifteen minutes; no laptop process is involved. Each run writes the scheduler and worker heartbeats used by `/system_status`.
 - Supabase/Postgres: sole durable workflow, artifact, approval, queue, lease, provenance, and audit source of truth.
-- Google Gemini API: structured research synthesis, writing, editorial review, and revision through a provider abstraction. Deterministic evidence and quality gates remain authoritative.
+- Groq, OpenRouter, and Gemini APIs: structured research synthesis, writing, editorial review, and revision through an audited failover abstraction. Deterministic evidence and quality gates remain authoritative.
 - GitHub `deep8904/Deep-Blog`: exact compare-and-swap commit of one approved MDX artifact to `main`.
 - Vercel Git integration: production deployment verified from exact `vercel[bot]` GitHub deployment metadata plus public page checks.
 
 ## One-time setup
 
-Complete `docs/21_PRODUCTION_SETUP_CHECKLIST.md` once. `/system_status` reports any category still missing. The only new external account item is an official Gemini API key; a consumer Gemini subscription does not imply API access.
+Complete `docs/21_PRODUCTION_SETUP_CHECKLIST.md` once. `/system_status` reports any category still missing. Dedicated Groq, OpenRouter, and Gemini API keys are required for the full resilience chain; consumer subscriptions do not imply API access.
 
 ## Audit history
 

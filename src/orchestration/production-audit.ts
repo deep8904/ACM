@@ -187,6 +187,10 @@ export async function auditProductionResearch(
           provider_version: string | null;
           status: string;
           error_summary: string | null;
+          attempt_index: number;
+          fallback_used: boolean;
+          fallback_reason: string | null;
+          failure_reason: string | null;
           prompt_tokens: number | null;
           completion_tokens: number | null;
           total_tokens: number | null;
@@ -195,6 +199,7 @@ export async function auditProductionResearch(
         }[]
       >`
         select id,job_id,stage,provider,model,provider_version,status,error_summary,
+          attempt_index,fallback_used,fallback_reason,failure_reason,
           prompt_tokens,completion_tokens,total_tokens,created_at,completed_at
         from content_machine.llm_invocations where job_id in ${sql(jobIds)}
         order by created_at,id

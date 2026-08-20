@@ -79,9 +79,12 @@ jobs:
       CONTROL_PLANE_ORIGIN: ${{ vars.CONTROL_PLANE_ORIGIN }}
       PREVIEW_SIGNING_SECRET: ${{ secrets.PREVIEW_SIGNING_SECRET }}
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      LLM_PROVIDER: gemini
-      GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
-      GOOGLE_AI_MODEL: ${{ vars.GOOGLE_AI_MODEL || 'gemini-3.6-flash' }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_MODEL: ${{ vars.GROQ_MODEL || 'llama-3.3-70b-versatile' }}
+      OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openai/gpt-oss-120b' }}
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.6-flash' }}
       AUTOMATION_MAX_JOBS_PER_RUN: "4"
       AUTOMATION_LEASE_MINUTES: "30"
     steps:

@@ -1,191 +1,264 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import type { DatabaseClient } from "../database/client";
 import {
   createConfiguredLlmProvider,
-  GeminiLLMProvider,
+  FailoverAIProvider,
+  GeminiAIProvider,
+  GroqAIProvider,
   LlmProviderConfigurationError,
+  OpenRouterAIProvider,
   resolveGeminiModel,
 } from "./provider";
 
-describe("GeminiLLMProvider", () => {
-  it("retries a transient response and validates structured JSON", async () => {
-    let calls = 0;
-    let requestUrl = "";
-    const provider = new GeminiLLMProvider({
-      apiKey: "test-key",
-      model: "test-model",
-      fetch: async (input) => {
-        requestUrl = String(input);
-        calls += 1;
-        if (calls === 1) return new Response("busy", { status: 429 });
-        return Response.json({
-          candidates: [{ content: { parts: [{ text: '{"answer":"safe"}' }] } }],
-          usageMetadata: {
-            promptTokenCount: 2,
-            candidatesTokenCount: 1,
-            totalTokenCount: 3,
+const schema = z.object({ answer: z.literal("safe") }).strict();
+const request = {
+  jobId: `automationjob_${"a".repeat(24)}`,
+  stage: "research" as const,
+  system: "Return a test value.",
+  task: {},
+  schema,
+};
+const success = () =>
+  Response.json({
+    choices: [{ message: { content: '{"answer":"safe"}' } }],
+    model: "resolved-model",
+    usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
+  });
+const geminiSuccess = () =>
+  Response.json({
+    candidates: [{ content: { parts: [{ text: '{"answer":"safe"}' }] } }],
+    modelVersion: "gemini-test-001",
+  });
+
+describe("AI provider failover", () => {
+  it("records Gemini quota failure and succeeds with Groq", async () => {
+    const gemini = new GeminiAIProvider({
+      apiKey: "gemini-key",
+      model: "gemini-test",
+      fetch: async () =>
+        Response.json(
+          {
+            error: {
+              status: "RESOURCE_EXHAUSTED",
+              message: "Free tier quota exceeded",
+            },
           },
-          modelVersion: "test-model-001",
-        });
-      },
+          { status: 429 },
+        ),
     });
-    const result = await provider.generate({
-      jobId: `automationjob_${"a".repeat(24)}`,
-      stage: "writing",
-      system: "Return a test value.",
-      task: {},
-      schema: z.object({ answer: z.literal("safe") }).strict(),
+    const groq = new GroqAIProvider({
+      apiKey: "groq-key",
+      model: "groq-test",
+      fetch: async () => success(),
     });
-    expect(calls).toBe(2);
-    expect(requestUrl).toBe(
-      "https://generativelanguage.googleapis.com/v1beta/models/test-model:generateContent?key=test-key",
+
+    const result = await new FailoverAIProvider([gemini, groq]).summarize(
+      request,
     );
-    expect(result.value).toEqual({ answer: "safe" });
-    expect(result.usage?.totalTokens).toBe(3);
+
+    expect(result.provider).toBe("groq");
+    expect(result.model).toBe("groq-test");
+    expect(result.fallbackUsed).toBe(true);
+    expect(result.fallbackReason).toBe("gemini_quota_exceeded");
+    expect(result.attempts).toEqual([
+      {
+        provider: "gemini",
+        model: "gemini-test",
+        succeeded: false,
+        failureReason: "gemini_quota_exceeded",
+      },
+      { provider: "groq", model: "groq-test", succeeded: true },
+    ]);
   });
 
-  it("uses the intended production model route without duplicating models/", async () => {
-    let requestUrl = "";
-    const provider = new GeminiLLMProvider({
-      apiKey: "test-key",
-      model: "models/gemini-2.5-flash",
-      maximumAttempts: 1,
-      fetch: async (input) => {
-        requestUrl = String(input);
-        return Response.json({
-          candidates: [{ content: { parts: [{ text: '{"answer":"safe"}' }] } }],
-          modelVersion: "gemini-2.5-flash-001",
-        });
-      },
+  it("writes provider, model, failure reason, and fallback reason to the audit log", async () => {
+    const calls: { text: string; values: unknown[] }[] = [];
+    const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+      calls.push({ text: strings.join("?"), values });
+      return Promise.resolve([]);
+    }) as unknown as DatabaseClient;
+    const gemini = new GeminiAIProvider({
+      apiKey: "gemini-key",
+      model: "gemini-test",
+      fetch: async () =>
+        Response.json(
+          { error: { message: "quota exceeded" } },
+          { status: 429 },
+        ),
     });
-    const result = await provider.generate({
-      jobId: `automationjob_${"c".repeat(24)}`,
-      stage: "research",
-      system: "Return a test value.",
-      task: {},
-      schema: z.object({ answer: z.literal("safe") }).strict(),
+    const groq = new GroqAIProvider({
+      apiKey: "groq-key",
+      model: "groq-test",
+      fetch: async () => success(),
     });
-    expect(requestUrl).toBe(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=test-key",
-    );
-    expect(result.model).toBe("gemini-2.5-flash");
-    expect(result.providerVersion).toBe("gemini-2.5-flash-001");
+
+    await new FailoverAIProvider([gemini, groq], sql).generate(request);
+
+    expect(
+      calls.some(
+        (call) =>
+          call.text.includes("failure_reason") &&
+          call.values.includes("gemini_quota_exceeded"),
+      ),
+    ).toBe(true);
+    expect(
+      calls.some(
+        (call) =>
+          call.text.includes("fallback_reason") &&
+          call.values.includes("groq") &&
+          call.values.includes("groq-test") &&
+          call.values.includes("gemini_quota_exceeded"),
+      ),
+    ).toBe(true);
   });
 
-  it("defaults production to the supported Gemini 3.6 Flash model", () => {
+  it("falls back from Groq unavailability to OpenRouter", async () => {
+    const groq = new GroqAIProvider({
+      apiKey: "groq-key",
+      model: "groq-test",
+      fetch: async () => new Response("unavailable", { status: 503 }),
+    });
+    const openrouter = new OpenRouterAIProvider({
+      apiKey: "openrouter-key",
+      model: "openrouter-test",
+      fetch: async () => success(),
+    });
+
+    const result = await new FailoverAIProvider([groq, openrouter]).generate(
+      request,
+    );
+
+    expect(result.provider).toBe("openrouter");
+    expect(result.fallbackUsed).toBe(true);
+    expect(result.fallbackReason).toBe("groq_unavailable");
+  });
+
+  it("reports every failure when all providers are unavailable", async () => {
+    const providers = [
+      new GroqAIProvider({
+        apiKey: "g",
+        model: "g",
+        fetch: async () => new Response("busy", { status: 503 }),
+      }),
+      new OpenRouterAIProvider({
+        apiKey: "o",
+        model: "o",
+        fetch: async () => new Response("busy", { status: 429 }),
+      }),
+      new GeminiAIProvider({
+        apiKey: "m",
+        model: "m",
+        fetch: async () => new Response("busy", { status: 503 }),
+      }),
+    ];
+
+    await expect(
+      new FailoverAIProvider(providers).generate(request),
+    ).rejects.toMatchObject({
+      name: "AllAIProvidersFailedError",
+      attempts: expect.arrayContaining([
+        expect.objectContaining({
+          provider: "groq",
+          failureReason: "groq_unavailable",
+        }),
+        expect.objectContaining({
+          provider: "openrouter",
+          failureReason: "openrouter_rate_limited",
+        }),
+        expect.objectContaining({
+          provider: "gemini",
+          failureReason: "gemini_unavailable",
+        }),
+      ]),
+    });
+  });
+
+  it("does not fail over on schema-invalid content", async () => {
+    let fallbackCalls = 0;
+    const groq = new GroqAIProvider({
+      apiKey: "g",
+      model: "g",
+      fetch: async () =>
+        Response.json({
+          choices: [{ message: { content: '{"answer":"unsafe"}' } }],
+        }),
+    });
+    const openrouter = new OpenRouterAIProvider({
+      apiKey: "o",
+      model: "o",
+      fetch: async () => {
+        fallbackCalls += 1;
+        return success();
+      },
+    });
+
+    await expect(
+      new FailoverAIProvider([groq, openrouter]).generate(request),
+    ).rejects.toThrow("structured output failed validation");
+    expect(fallbackCalls).toBe(0);
+  });
+});
+
+describe("configured provider chain", () => {
+  it("uses Groq, OpenRouter, then Gemini in production order", async () => {
     const provider = createConfiguredLlmProvider({
-      GOOGLE_AI_API_KEY: "test-key",
       NODE_ENV: "test",
+      GROQ_API_KEY: "g",
+      OPENROUTER_API_KEY: "o",
+      GEMINI_API_KEY: "m",
+    });
+    expect(provider.name).toBe("provider_chain");
+    expect(provider.model).toBe("llama-3.3-70b-versatile");
+  });
+
+  it("rejects an empty provider configuration", () => {
+    expect(() => createConfiguredLlmProvider({ NODE_ENV: "test" })).toThrow(
+      LlmProviderConfigurationError,
+    );
+  });
+
+  it("keeps the legacy Gemini key as a migration bridge", () => {
+    const provider = createConfiguredLlmProvider({
+      NODE_ENV: "test",
+      GOOGLE_AI_API_KEY: "legacy",
     });
     expect(provider.model).toBe("gemini-3.6-flash");
-    expect(geminiUrl(provider.model)).toBe(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=test-key",
-    );
   });
 
-  it("migrates an explicitly pinned legacy Flash model", () => {
-    expect(resolveGeminiModel("gemini-2.5-flash")).toBe("gemini-3.6-flash");
+  it("migrates the legacy Flash model name", () => {
     expect(resolveGeminiModel("models/gemini-2.5-flash")).toBe(
       "gemini-3.6-flash",
     );
   });
 
-  it("omits sampling parameters deprecated by Gemini 3.6 Flash", async () => {
-    let requestBody: unknown;
-    const provider = new GeminiLLMProvider({
+  it("preserves Gemini configuration diagnostics", async () => {
+    const provider = new GeminiAIProvider({
       apiKey: "test-key",
-      model: "gemini-3.6-flash",
-      maximumAttempts: 1,
-      fetch: async (_input, init) => {
-        requestBody = JSON.parse(String(init?.body));
-        return Response.json({
-          candidates: [{ content: { parts: [{ text: '{"answer":"safe"}' }] } }],
-          modelVersion: "gemini-3.6-flash",
-        });
-      },
-    });
-    await provider.generate({
-      jobId: `automationjob_${"f".repeat(24)}`,
-      stage: "research",
-      system: "Return a test value.",
-      task: {},
-      schema: z.object({ answer: z.literal("safe") }).strict(),
-    });
-    expect(requestBody).toMatchObject({
-      generationConfig: {
-        responseMimeType: "application/json",
-        maxOutputTokens: 8192,
-      },
-    });
-    expect(
-      (requestBody as { generationConfig: Record<string, unknown> })
-        .generationConfig,
-    ).not.toHaveProperty("temperature");
-  });
-
-  it("preserves a safe Gemini 404 diagnostic as a configuration failure", async () => {
-    const provider = new GeminiLLMProvider({
-      apiKey: "test-key",
-      model: "gemini-2.5-flash",
-      maximumAttempts: 1,
+      model: "missing-model",
       fetch: async () =>
         Response.json(
-          {
-            error: {
-              code: 404,
-              status: "NOT_FOUND",
-              message:
-                "models/gemini-2.5-flash is not found for API version v1beta",
-            },
-          },
+          { error: { status: "NOT_FOUND", message: "model not found" } },
           { status: 404 },
         ),
     });
-    await expect(
-      provider.generate({
-        jobId: `automationjob_${"d".repeat(24)}`,
-        stage: "research",
-        system: "Return a test value.",
-        task: {},
-        schema: z.object({ answer: z.literal("safe") }).strict(),
-      }),
-    ).rejects.toThrow(LlmProviderConfigurationError);
-    await expect(
-      provider.generate({
-        jobId: `automationjob_${"e".repeat(24)}`,
-        stage: "research",
-        system: "Return a test value.",
-        task: {},
-        schema: z.object({ answer: z.literal("safe") }).strict(),
-      }),
-    ).rejects.toThrow(/404 NOT_FOUND.*not found for API version v1beta/);
+    await expect(provider.generate(request)).rejects.toThrow(
+      LlmProviderConfigurationError,
+    );
   });
 
-  it("rejects output that never satisfies the schema", async () => {
-    const provider = new GeminiLLMProvider({
-      apiKey: "test-key",
-      model: "test-model",
-      maximumAttempts: 1,
-      fetch: async () =>
-        Response.json({
-          candidates: [
-            { content: { parts: [{ text: '{"answer":"unsafe"}' }] } },
-          ],
-        }),
+  it("validates Gemini structured output", async () => {
+    const provider = new GeminiAIProvider({
+      apiKey: "key",
+      model: "model",
+      fetch: async () => geminiSuccess(),
     });
-    await expect(
-      provider.generate({
-        jobId: `automationjob_${"b".repeat(24)}`,
-        stage: "editorial_review",
-        system: "Return a test value.",
-        task: {},
-        schema: z.object({ answer: z.literal("safe") }).strict(),
-      }),
-    ).rejects.toThrow("structured output failed validation");
+    const result = await provider.review({
+      ...request,
+      stage: "editorial_review",
+    });
+    expect(result.value).toEqual({ answer: "safe" });
+    expect(result.providerVersion).toBe("gemini-test-001");
   });
 });
-
-function geminiUrl(model: string) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=test-key`;
-}

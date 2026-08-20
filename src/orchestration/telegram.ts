@@ -118,7 +118,8 @@ export class OperationsTelegramController implements FinalReviewControl {
 }
 
 function category(name: string) {
-  if (name.includes("GOOGLE_AI")) return "AI provider key";
+  if (name.includes("API_KEY") && /GROQ|OPENROUTER|GEMINI/.test(name))
+    return "AI provider key";
   if (name.includes("TELEGRAM")) return "Telegram configuration";
   if (name.includes("BLOG_")) return "GitHub configuration";
   if (name === "CONTROL_PLANE_ORIGIN") return "hosted URL";

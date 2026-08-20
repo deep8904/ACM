@@ -4,8 +4,8 @@ Daily operation is Telegram-only after this checklist passes.
 
 ## 1. Google AI provider
 
-- Create one official Gemini API key in Google AI Studio for the automation project.
-- Add it as the protected `GOOGLE_AI_API_KEY` secret in the ACM GitHub production environment and Vercel project.
+- Create dedicated API keys for Groq, OpenRouter, and Gemini for the automation project.
+- Add protected `GROQ_API_KEY`, `OPENROUTER_API_KEY`, and `GEMINI_API_KEY` secrets in the ACM GitHub production environment and Vercel project. Runtime order is Groq, then OpenRouter, then Gemini; every fallback is recorded in `llm_invocations`.
 - Set `GOOGLE_AI_MODEL` as a repository/environment variable when overriding the checked default.
 - Never use browser automation against the Gemini consumer website.
 
@@ -17,7 +17,7 @@ Configure the ACM repository's protected `production` environment with:
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_IDS`, `TELEGRAM_ALLOWED_USER_IDS`
 - `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_CALLBACK_SECRET`
 - `BLOG_GITHUB_TOKEN` scoped to `deep8904/Deep-Blog` Contents read/write, Metadata read, and Deployments read
-- `GOOGLE_AI_API_KEY`, `PREVIEW_SIGNING_SECRET`, `CRON_SECRET`
+- `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `PREVIEW_SIGNING_SECRET`, `CRON_SECRET`
 
 Set `CONTROL_PLANE_ORIGIN` and `SITE_ORIGIN` as GitHub environment variables. `SITE_ORIGIN` must be the permanent public blog origin. The checked-in `automation-worker.yml` is the primary scheduler and uses two off-peak, offset hourly schedules for nominal twice-hourly wakeups. It handles migration checks, twice-weekly discovery slot reconciliation, leases, retries, and long-running stages. Its concurrency guard prevents overlapping workers, `workflow_dispatch` provides a safe manual trigger, and delayed wakeups reconcile missed durable work. Durable slot idempotency ensures that worker frequency cannot increase discovery beyond Monday and Thursday at 16:00 UTC.
 

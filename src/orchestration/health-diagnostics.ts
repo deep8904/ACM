@@ -40,7 +40,12 @@ export function diagnoseHealthFailure(
         (environment.VERCEL_TOKEN && environment.VERCEL_PROJECT_ID)
           ? "configured"
           : "missing",
-      llm: environment.GOOGLE_AI_API_KEY ? "configured" : "missing",
+      llm:
+        environment.GROQ_API_KEY &&
+        environment.OPENROUTER_API_KEY &&
+        environment.GEMINI_API_KEY
+          ? "configured"
+          : "missing",
     },
     missing,
     invalid: configurationFailure ? invalidConfigurationNames(environment) : [],

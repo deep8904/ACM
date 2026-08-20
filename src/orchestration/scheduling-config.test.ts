@@ -86,8 +86,14 @@ describe("free hosted scheduler configuration", () => {
       run: "npm run db:migrate",
     });
     expect(jobs.drain.env.SITE_ORIGIN).toBe("${{ vars.SITE_ORIGIN }}");
-    expect(jobs.drain.env.GOOGLE_AI_MODEL).toBe(
-      "${{ vars.GOOGLE_AI_MODEL || 'gemini-3.6-flash' }}",
+    expect(jobs.drain.env.GROQ_MODEL).toBe(
+      "${{ vars.GROQ_MODEL || 'llama-3.3-70b-versatile' }}",
+    );
+    expect(jobs.drain.env.OPENROUTER_MODEL).toBe(
+      "${{ vars.OPENROUTER_MODEL || 'openai/gpt-oss-120b' }}",
+    );
+    expect(jobs.drain.env.GEMINI_MODEL).toBe(
+      "${{ vars.GEMINI_MODEL || 'gemini-3.6-flash' }}",
     );
   });
 

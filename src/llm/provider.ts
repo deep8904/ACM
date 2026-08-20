@@ -4,7 +4,19 @@ import { z } from "zod";
 import type { DatabaseClient } from "../database/client";
 
 export type LlmStage = "research" | "writing" | "editorial_review" | "revision";
-
+export interface AIProviderRequest<T> {
+  jobId: string;
+  stage: LlmStage;
+  system: string;
+  task: unknown;
+  schema: z.ZodType<T>;
+}
+export interface AIProviderAttempt {
+  provider: string;
+  model: string;
+  succeeded: boolean;
+  failureReason?: string;
+}
 export interface LlmGeneration<T> {
   value: T;
   provider: string;
@@ -16,26 +28,211 @@ export interface LlmGeneration<T> {
     totalTokens?: number;
   };
   responseHash: string;
+  fallbackUsed: boolean;
+  fallbackReason?: string;
+  attempts: AIProviderAttempt[];
 }
-
-export interface LLMProvider {
+export interface AIProviderHealth {
+  provider: string;
+  model: string;
+  available: boolean;
+  failureReason?: string;
+}
+export interface AIProvider {
   readonly name: string;
   readonly model: string;
-  generate<T>(input: {
-    jobId: string;
-    stage: LlmStage;
-    system: string;
-    task: unknown;
-    schema: z.ZodType<T>;
-  }): Promise<LlmGeneration<T>>;
+  generate<T>(input: AIProviderRequest<T>): Promise<LlmGeneration<T>>;
+  summarize<T>(input: AIProviderRequest<T>): Promise<LlmGeneration<T>>;
+  review<T>(input: AIProviderRequest<T>): Promise<LlmGeneration<T>>;
+  healthCheck(): Promise<AIProviderHealth>;
 }
+export type LLMProvider = AIProvider;
 
 export class LlmProviderConfigurationError extends Error {
   readonly code = "llm_provider_configuration_invalid";
-
   constructor(message: string) {
     super(message);
     this.name = "LlmProviderConfigurationError";
+  }
+}
+export class AIProviderError extends Error {
+  constructor(
+    message: string,
+    readonly provider: string,
+    readonly reason: string,
+    readonly retryable: boolean,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = "AIProviderError";
+  }
+}
+export class AllAIProvidersFailedError extends Error {
+  readonly code = "all_ai_providers_failed";
+  constructor(readonly attempts: AIProviderAttempt[]) {
+    super(
+      `All AI providers failed: ${attempts.map((attempt) => `${attempt.provider} (${attempt.failureReason ?? "unknown"})`).join(", ")}`,
+    );
+    this.name = "AllAIProvidersFailedError";
+  }
+}
+
+abstract class StructuredAIProvider implements AIProvider {
+  abstract readonly name: string;
+  abstract readonly model: string;
+  abstract generate<T>(input: AIProviderRequest<T>): Promise<LlmGeneration<T>>;
+  summarize<T>(input: AIProviderRequest<T>) {
+    return this.generate(input);
+  }
+  review<T>(input: AIProviderRequest<T>) {
+    return this.generate(input);
+  }
+  abstract healthCheck(): Promise<AIProviderHealth>;
+  protected result<T>(
+    value: T,
+    providerVersion?: string,
+    usage?: LlmGeneration<T>["usage"],
+  ): LlmGeneration<T> {
+    return {
+      value,
+      provider: this.name,
+      model: this.model,
+      providerVersion,
+      usage,
+      responseHash: sha256(JSON.stringify(value)),
+      fallbackUsed: false,
+      attempts: [{ provider: this.name, model: this.model, succeeded: true }],
+    };
+  }
+}
+
+interface HttpProviderOptions {
+  apiKey: string;
+  model: string;
+  fetch?: typeof fetch;
+  timeoutMs?: number;
+}
+const openAIEnvelopeSchema = z.object({
+  choices: z.array(
+    z.object({
+      message: z.object({ content: z.string().nullable() }),
+      finish_reason: z.string().nullable().optional(),
+    }),
+  ),
+  model: z.string().optional(),
+  usage: z
+    .object({
+      prompt_tokens: z.number().int().nonnegative().optional(),
+      completion_tokens: z.number().int().nonnegative().optional(),
+      total_tokens: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+});
+
+abstract class OpenAICompatibleProvider extends StructuredAIProvider {
+  readonly model: string;
+  protected readonly fetchImplementation: typeof fetch;
+  protected readonly timeoutMs: number;
+  protected constructor(
+    protected readonly options: HttpProviderOptions,
+    private readonly endpoint: string,
+  ) {
+    super();
+    if (!options.apiKey)
+      throw new LlmProviderConfigurationError(
+        `${this.constructor.name} API key is required`,
+      );
+    this.model = options.model;
+    this.fetchImplementation = options.fetch ?? fetch;
+    this.timeoutMs = options.timeoutMs ?? 45_000;
+  }
+  async generate<T>(input: AIProviderRequest<T>): Promise<LlmGeneration<T>> {
+    const response = await this.request(this.endpoint, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${this.options.apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: this.model,
+        messages: [
+          { role: "system", content: input.system },
+          { role: "user", content: requestText(input) },
+        ],
+        response_format: { type: "json_object" },
+        max_tokens:
+          input.stage === "writing" || input.stage === "revision"
+            ? 16384
+            : 8192,
+      }),
+    });
+    const envelope = openAIEnvelopeSchema.parse(await response.json());
+    const value = validateStructuredOutput(
+      envelope.choices[0]?.message.content,
+      input.schema,
+      this.name,
+    );
+    return this.result(
+      value,
+      envelope.model,
+      envelope.usage
+        ? {
+            promptTokens: envelope.usage.prompt_tokens,
+            completionTokens: envelope.usage.completion_tokens,
+            totalTokens: envelope.usage.total_tokens,
+          }
+        : undefined,
+    );
+  }
+  async healthCheck(): Promise<AIProviderHealth> {
+    try {
+      await this.request(`${new URL(this.endpoint).origin}/openai/v1/models`, {
+        headers: { authorization: `Bearer ${this.options.apiKey}` },
+      });
+      return { provider: this.name, model: this.model, available: true };
+    } catch (error) {
+      return healthFailure(this, error);
+    }
+  }
+  protected async request(url: string, init: RequestInit) {
+    try {
+      const response = await this.fetchImplementation(url, {
+        ...init,
+        signal: init.signal ?? AbortSignal.timeout(this.timeoutMs),
+      });
+      if (!response.ok)
+        throw providerHttpError(
+          this.name,
+          response.status,
+          await safeHttpError(response),
+        );
+      return response;
+    } catch (error) {
+      throw normalizeProviderError(this.name, error);
+    }
+  }
+}
+
+export class GroqAIProvider extends OpenAICompatibleProvider {
+  readonly name = "groq";
+  constructor(options: HttpProviderOptions) {
+    super(options, "https://api.groq.com/openai/v1/chat/completions");
+  }
+}
+export class OpenRouterAIProvider extends OpenAICompatibleProvider {
+  readonly name = "openrouter";
+  constructor(options: HttpProviderOptions) {
+    super(options, "https://openrouter.ai/api/v1/chat/completions");
+  }
+  override async healthCheck(): Promise<AIProviderHealth> {
+    try {
+      await this.request("https://openrouter.ai/api/v1/models", {
+        headers: { authorization: `Bearer ${this.options.apiKey}` },
+      });
+      return { provider: this.name, model: this.model, available: true };
+    } catch (error) {
+      return healthFailure(this, error);
+    }
   }
 }
 
@@ -59,241 +256,398 @@ const geminiEnvelopeSchema = z.object({
     .optional(),
   modelVersion: z.string().optional(),
 });
-
-export class GeminiLLMProvider implements LLMProvider {
-  readonly name = "google_gemini";
+export class GeminiAIProvider extends StructuredAIProvider {
+  readonly name = "gemini";
   readonly model: string;
   private readonly fetchImplementation: typeof fetch;
-
+  private readonly timeoutMs: number;
   constructor(
-    private readonly options: {
-      apiKey: string;
-      model: string;
-      sql?: DatabaseClient;
-      fetch?: typeof fetch;
+    private readonly options: HttpProviderOptions & {
       maximumAttempts?: number;
     },
   ) {
-    if (!options.apiKey) throw new Error("GOOGLE_AI_API_KEY is required");
+    super();
+    if (!options.apiKey)
+      throw new LlmProviderConfigurationError("GEMINI_API_KEY is required");
     this.model = options.model.replace(/^models\//, "");
     this.fetchImplementation = options.fetch ?? fetch;
+    this.timeoutMs = options.timeoutMs ?? 45_000;
   }
-
-  async generate<T>(input: {
-    jobId: string;
-    stage: LlmStage;
-    system: string;
-    task: unknown;
-    schema: z.ZodType<T>;
-  }): Promise<LlmGeneration<T>> {
-    const requestText = `${input.system.trim()}\n\nReturn exactly one JSON object and no markdown. The JSON must satisfy the supplied task identity and schema. Never invent source IDs, claim IDs, measurements, first-hand experience, or unsupported facts.\n\nTASK INPUT:\n${JSON.stringify(input.task, null, 2)}`;
-    const requestHash = sha256(requestText);
-    const callId = `llmcall_${sha256(`${input.jobId}:${input.stage}:${requestHash}`).slice(0, 24)}`;
-    await this.recordStart(callId, input, requestHash);
-    let lastError: unknown;
-    for (
-      let attempt = 1;
-      attempt <= (this.options.maximumAttempts ?? 3);
-      attempt += 1
-    ) {
-      try {
-        const response = await this.fetchImplementation(
-          geminiGenerateContentUrl(this.model, this.options.apiKey),
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ role: "user", parts: [{ text: requestText }] }],
-              generationConfig: {
-                responseMimeType: "application/json",
-                maxOutputTokens:
-                  input.stage === "writing" || input.stage === "revision"
-                    ? 16384
-                    : 8192,
+  async generate<T>(input: AIProviderRequest<T>): Promise<LlmGeneration<T>> {
+    try {
+      const response = await this.fetchImplementation(
+        geminiGenerateContentUrl(this.model, this.options.apiKey),
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          signal: AbortSignal.timeout(this.timeoutMs),
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: `${input.system}\n\n${requestText(input)}` }],
               },
-            }),
-          },
-        );
-        if (!response.ok) {
-          const retryable =
-            response.status === 408 ||
-            response.status === 429 ||
-            response.status >= 500;
-          if (retryable && attempt < (this.options.maximumAttempts ?? 3))
-            continue;
-          const detail = await safeGeminiError(response);
-          const message = `Gemini request failed (${response.status}${detail ? ` ${detail}` : ""})`;
-          if ([400, 401, 403, 404].includes(response.status))
-            throw new LlmProviderConfigurationError(message);
-          throw new Error(message);
-        }
-        const envelope = geminiEnvelopeSchema.parse(await response.json());
-        const text = envelope.candidates?.[0]?.content.parts
-          .map((part) => part.text ?? "")
-          .join("")
-          .trim();
-        if (!text) throw new Error("Gemini returned no structured output");
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(stripCodeFence(text));
-        } catch {
-          throw new Error("Gemini returned invalid JSON");
-        }
-        const result = input.schema.safeParse(parsed);
-        if (!result.success) {
-          await this.recordFailure(
-            callId,
-            "schema_rejected",
-            result.error.issues
-              .slice(0, 5)
-              .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-              .join("; "),
+            ],
+            generationConfig: {
+              responseMimeType: "application/json",
+              maxOutputTokens:
+                input.stage === "writing" || input.stage === "revision"
+                  ? 16384
+                  : 8192,
+            },
+          }),
+        },
+      );
+      if (!response.ok) {
+        const detail = await safeHttpError(response);
+        if ([400, 401, 403, 404].includes(response.status))
+          throw new LlmProviderConfigurationError(
+            `Gemini request failed (${response.status}${detail ? ` ${detail}` : ""})`,
           );
-          if (attempt < (this.options.maximumAttempts ?? 3)) continue;
-          throw new Error(
-            `LLM structured output failed validation: ${result.error.issues[0]?.message ?? "unknown schema error"}`,
-          );
-        }
-        const usage = envelope.usageMetadata
+        throw providerHttpError(this.name, response.status, detail);
+      }
+      const envelope = geminiEnvelopeSchema.parse(await response.json());
+      const text = envelope.candidates?.[0]?.content.parts
+        .map((part) => part.text ?? "")
+        .join("");
+      const value = validateStructuredOutput(text, input.schema, this.name);
+      return this.result(
+        value,
+        envelope.modelVersion,
+        envelope.usageMetadata
           ? {
               promptTokens: envelope.usageMetadata.promptTokenCount,
               completionTokens: envelope.usageMetadata.candidatesTokenCount,
               totalTokens: envelope.usageMetadata.totalTokenCount,
             }
-          : undefined;
-        const responseHash = sha256(JSON.stringify(result.data));
-        await this.recordSuccess(
-          callId,
-          responseHash,
-          envelope.modelVersion,
-          usage,
-        );
-        return {
-          value: result.data,
-          provider: this.name,
-          model: this.model,
-          providerVersion: envelope.modelVersion,
-          usage,
-          responseHash,
-        };
-      } catch (error) {
-        lastError = error;
-        if (attempt < (this.options.maximumAttempts ?? 3) && transient(error))
-          continue;
-      }
+          : undefined,
+      );
+    } catch (error) {
+      throw normalizeProviderError(this.name, error);
     }
-    await this.recordFailure(callId, "failed", safeError(lastError));
-    throw lastError instanceof Error
-      ? lastError
-      : new Error("LLM generation failed");
   }
-
-  private async recordStart(
-    id: string,
-    input: { jobId: string; stage: LlmStage },
-    requestHash: string,
-  ) {
-    if (!this.options.sql) return;
-    await this.options.sql`
-      insert into content_machine.llm_invocations(id,job_id,stage,provider,model,request_hash,status)
-      values (${id},${input.jobId},${input.stage},${this.name},${this.model},${requestHash},'started')
-      on conflict(id) do update set status='started',error_summary=null,completed_at=null
-    `;
-  }
-
-  private async recordSuccess(
-    id: string,
-    responseHash: string,
-    providerVersion: string | undefined,
-    usage: LlmGeneration<unknown>["usage"],
-  ) {
-    if (!this.options.sql) return;
-    await this.options.sql`
-      update content_machine.llm_invocations set status='succeeded',response_hash=${responseHash},
-        provider_version=${providerVersion ?? null},prompt_tokens=${usage?.promptTokens ?? null},
-        completion_tokens=${usage?.completionTokens ?? null},total_tokens=${usage?.totalTokens ?? null},completed_at=now()
-      where id=${id}
-    `;
-  }
-
-  private async recordFailure(
-    id: string,
-    status: "failed" | "schema_rejected",
-    summary: string,
-  ) {
-    if (!this.options.sql) return;
-    await this.options.sql`
-      update content_machine.llm_invocations set status=${status},error_summary=${summary.slice(0, 1000)},completed_at=now()
-      where id=${id}
-    `;
+  async healthCheck(): Promise<AIProviderHealth> {
+    try {
+      const response = await this.fetchImplementation(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}?key=${encodeURIComponent(this.options.apiKey)}`,
+        { signal: AbortSignal.timeout(this.timeoutMs) },
+      );
+      if (!response.ok)
+        throw providerHttpError(
+          this.name,
+          response.status,
+          await safeHttpError(response),
+        );
+      return { provider: this.name, model: this.model, available: true };
+    } catch (error) {
+      return healthFailure(this, normalizeProviderError(this.name, error));
+    }
   }
 }
+export const GeminiLLMProvider = GeminiAIProvider;
 
-export function geminiGenerateContentUrl(model: string, apiKey: string) {
-  const canonicalModel = model.replace(/^models\//, "");
-  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(canonicalModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+export class FailoverAIProvider extends StructuredAIProvider {
+  readonly name = "provider_chain";
+  readonly model: string;
+  constructor(
+    private readonly providers: AIProvider[],
+    private readonly sql?: DatabaseClient,
+  ) {
+    super();
+    if (!providers.length)
+      throw new LlmProviderConfigurationError(
+        "No AI provider API keys are configured",
+      );
+    this.model = providers[0]!.model;
+  }
+  generate<T>(input: AIProviderRequest<T>) {
+    return this.execute("generate", input);
+  }
+  summarize<T>(input: AIProviderRequest<T>) {
+    return this.execute("summarize", input);
+  }
+  review<T>(input: AIProviderRequest<T>) {
+    return this.execute("review", input);
+  }
+  async healthCheck(): Promise<AIProviderHealth> {
+    const checks = await Promise.all(
+      this.providers.map((provider) => provider.healthCheck()),
+    );
+    return (
+      checks.find((check) => check.available) ?? {
+        provider: this.name,
+        model: this.model,
+        available: false,
+        failureReason: checks
+          .map((check) => check.failureReason)
+          .filter(Boolean)
+          .join(","),
+      }
+    );
+  }
+  private async execute<T>(
+    operation: "generate" | "summarize" | "review",
+    input: AIProviderRequest<T>,
+  ): Promise<LlmGeneration<T>> {
+    const attempts: AIProviderAttempt[] = [];
+    const requestHash = sha256(
+      `${input.system.trim()}\n\n${requestText(input)}`,
+    );
+    for (const [index, provider] of this.providers.entries()) {
+      const fallbackReason = attempts.at(-1)?.failureReason;
+      const callId = `llmcall_${sha256(`${input.jobId}:${input.stage}:${requestHash}:${provider.name}:${index}`).slice(0, 24)}`;
+      await this.recordStart(
+        callId,
+        input,
+        provider,
+        requestHash,
+        index,
+        fallbackReason,
+      );
+      try {
+        const result = await provider[operation](input);
+        attempts.push({
+          provider: provider.name,
+          model: provider.model,
+          succeeded: true,
+        });
+        const final = {
+          ...result,
+          fallbackUsed: index > 0,
+          fallbackReason,
+          attempts,
+        };
+        await this.recordSuccess(callId, final);
+        return final;
+      } catch (error) {
+        const normalized =
+          error instanceof LlmProviderConfigurationError
+            ? new AIProviderError(
+                error.message,
+                provider.name,
+                `${provider.name}_configuration_invalid`,
+                false,
+              )
+            : normalizeProviderError(provider.name, error);
+        attempts.push({
+          provider: provider.name,
+          model: provider.model,
+          succeeded: false,
+          failureReason: normalized.reason,
+        });
+        await this.recordFailure(callId, normalized.reason, normalized.message);
+        if (!normalized.retryable) throw normalized;
+      }
+    }
+    throw new AllAIProvidersFailedError(attempts);
+  }
+  private async recordStart(
+    id: string,
+    input: Pick<AIProviderRequest<unknown>, "jobId" | "stage">,
+    provider: AIProvider,
+    requestHash: string,
+    index: number,
+    fallbackReason?: string,
+  ) {
+    if (!this.sql) return;
+    await this.sql`insert into content_machine.llm_invocations
+      (id,job_id,stage,provider,model,request_hash,status,attempt_index,fallback_used,fallback_reason)
+      values (${id},${input.jobId},${input.stage},${provider.name},${provider.model},${requestHash},'started',${index + 1},${index > 0},${fallbackReason ?? null})
+      on conflict(id) do update set status='started',failure_reason=null,error_summary=null,completed_at=null`;
+  }
+  private async recordSuccess<T>(id: string, result: LlmGeneration<T>) {
+    if (!this.sql) return;
+    await this
+      .sql`update content_machine.llm_invocations set status='succeeded',response_hash=${result.responseHash}, provider_version=${result.providerVersion ?? null},
+      prompt_tokens=${result.usage?.promptTokens ?? null},completion_tokens=${result.usage?.completionTokens ?? null},total_tokens=${result.usage?.totalTokens ?? null},completed_at=now() where id=${id}`;
+  }
+  private async recordFailure(id: string, reason: string, summary: string) {
+    if (!this.sql) return;
+    await this
+      .sql`update content_machine.llm_invocations set status='failed',failure_reason=${reason},error_summary=${safeError(summary).slice(0, 1000)},completed_at=now() where id=${id}`;
+  }
 }
 
 export function createConfiguredLlmProvider(
   environment: NodeJS.ProcessEnv,
   sql?: DatabaseClient,
-): LLMProvider {
-  const provider = environment.LLM_PROVIDER ?? "gemini";
-  if (provider !== "gemini")
-    throw new Error(`Unsupported LLM_PROVIDER: ${provider}`);
-  return new GeminiLLMProvider({
-    apiKey: environment.GOOGLE_AI_API_KEY ?? "",
-    model: resolveGeminiModel(environment.GOOGLE_AI_MODEL),
-    sql,
-  });
+): AIProvider {
+  const providers: AIProvider[] = [];
+  if (environment.GROQ_API_KEY)
+    providers.push(
+      new GroqAIProvider({
+        apiKey: environment.GROQ_API_KEY,
+        model: environment.GROQ_MODEL ?? "llama-3.3-70b-versatile",
+      }),
+    );
+  if (environment.OPENROUTER_API_KEY)
+    providers.push(
+      new OpenRouterAIProvider({
+        apiKey: environment.OPENROUTER_API_KEY,
+        model: environment.OPENROUTER_MODEL ?? "openai/gpt-oss-120b",
+      }),
+    );
+  const geminiKey = environment.GEMINI_API_KEY ?? environment.GOOGLE_AI_API_KEY;
+  if (geminiKey)
+    providers.push(
+      new GeminiAIProvider({
+        apiKey: geminiKey,
+        model: resolveGeminiModel(
+          environment.GEMINI_MODEL ?? environment.GOOGLE_AI_MODEL,
+        ),
+      }),
+    );
+  return new FailoverAIProvider(providers, sql);
 }
-
+export function geminiGenerateContentUrl(model: string, apiKey: string) {
+  const canonicalModel = model.replace(/^models\//, "");
+  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(canonicalModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+}
 export function resolveGeminiModel(configuredModel: string | undefined) {
   const model = configuredModel?.replace(/^models\//, "");
   return !model || model === "gemini-2.5-flash" ? "gemini-3.6-flash" : model;
 }
-
+function requestText<T>(input: AIProviderRequest<T>) {
+  return `Return exactly one JSON object and no markdown. The JSON must satisfy the supplied task identity and schema. Never invent source IDs, claim IDs, measurements, first-hand experience, or unsupported facts.\n\nTASK INPUT:\n${JSON.stringify(input.task, null, 2)}`;
+}
+function validateStructuredOutput<T>(
+  text: string | null | undefined,
+  schema: z.ZodType<T>,
+  provider: string,
+) {
+  if (!text?.trim())
+    throw new AIProviderError(
+      `${provider} returned no structured output`,
+      provider,
+      `${provider}_invalid_output`,
+      false,
+    );
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripCodeFence(text.trim()));
+  } catch {
+    throw new AIProviderError(
+      `${provider} returned invalid JSON`,
+      provider,
+      `${provider}_invalid_output`,
+      false,
+    );
+  }
+  const result = schema.safeParse(parsed);
+  if (!result.success)
+    throw new AIProviderError(
+      `LLM structured output failed validation: ${result.error.issues[0]?.message ?? "unknown schema error"}`,
+      provider,
+      `${provider}_schema_rejected`,
+      false,
+    );
+  return result.data;
+}
+function providerHttpError(provider: string, status: number, detail: string) {
+  const quota = /quota|resource_exhausted|insufficient.*credit/i.test(detail);
+  const timedOut = /timeout|timed out|deadline exceeded/i.test(detail);
+  const unavailable = /unavailable|temporar(?:y|ily)|overloaded/i.test(detail);
+  const reason = quota
+    ? `${provider}_quota_exceeded`
+    : timedOut
+      ? `${provider}_timeout`
+      : status === 429
+        ? `${provider}_rate_limited`
+        : status === 408
+          ? `${provider}_timeout`
+          : `${provider}_unavailable`;
+  const retryable =
+    quota ||
+    timedOut ||
+    unavailable ||
+    status === 408 ||
+    status === 429 ||
+    status >= 500;
+  const message = `${provider} request failed (${status}${detail ? ` ${detail}` : ""})`;
+  return retryable
+    ? new AIProviderError(message, provider, reason, true, status)
+    : new LlmProviderConfigurationError(message);
+}
+function normalizeProviderError(
+  provider: string,
+  error: unknown,
+): AIProviderError {
+  if (error instanceof AIProviderError) return error;
+  if (error instanceof LlmProviderConfigurationError) throw error;
+  const message = safeError(error);
+  const timeout =
+    /timeout|abort/i.test(message) ||
+    (error instanceof DOMException && error.name === "TimeoutError");
+  if (timeout)
+    return new AIProviderError(
+      `${provider} request timed out`,
+      provider,
+      `${provider}_timeout`,
+      true,
+    );
+  if (error instanceof TypeError)
+    return new AIProviderError(
+      `${provider} is unavailable`,
+      provider,
+      `${provider}_unavailable`,
+      true,
+    );
+  return new AIProviderError(message, provider, `${provider}_failed`, false);
+}
+function healthFailure(
+  provider: Pick<AIProvider, "name" | "model">,
+  error: unknown,
+): AIProviderHealth {
+  const normalized =
+    error instanceof LlmProviderConfigurationError
+      ? new AIProviderError(
+          error.message,
+          provider.name,
+          `${provider.name}_configuration_invalid`,
+          false,
+        )
+      : normalizeProviderError(provider.name, error);
+  return {
+    provider: provider.name,
+    model: provider.model,
+    available: false,
+    failureReason: normalized.reason,
+  };
+}
 function stripCodeFence(value: string) {
   return value.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
 }
-
 function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
-
-function transient(error: unknown) {
-  return (
-    error instanceof TypeError ||
-    /(?:timeout|429|5\d\d|temporar|network)/i.test(safeError(error))
-  );
-}
-
 function safeError(error: unknown) {
-  return error instanceof Error
-    ? error.message.replace(/(?:key|token|secret)=[^\s&]+/gi, "$1=<redacted>")
-    : "Unknown provider failure";
+  const value =
+    error instanceof Error
+      ? error.message
+      : String(error || "Unknown provider failure");
+  return value
+    .replace(/(?:key|token|secret)=[^\s&]+/gi, "$1=<redacted>")
+    .replace(/(?:Bearer\s+)[A-Za-z0-9._-]+/gi, "$1<redacted>")
+    .replace(/AIza[A-Za-z0-9_-]{20,}/g, "<redacted API key>");
 }
-
-async function safeGeminiError(response: Response): Promise<string> {
-  const body = await response
+async function safeHttpError(response: Response): Promise<string> {
+  const text = await response
     .clone()
-    .json()
-    .catch(() => undefined);
-  const parsed = z
-    .object({
-      error: z
-        .object({
-          status: z.string().max(100).optional(),
-          message: z.string().max(1000).optional(),
-        })
-        .optional(),
-    })
-    .safeParse(body);
-  if (!parsed.success || !parsed.data.error) return "";
-  const status = parsed.data.error.status?.replace(/[^A-Z0-9_]/g, "");
-  const message = parsed.data.error.message
-    ?.replace(/(?:key|token|secret)=[^\s&]+/gi, "$1=<redacted>")
-    .replace(/AIza[A-Za-z0-9_-]{20,}/g, "<redacted API key>")
-    .slice(0, 500);
-  return [status, message].filter(Boolean).join(": ");
+    .text()
+    .catch(() => "");
+  if (!text) return "";
+  try {
+    const body = JSON.parse(text) as {
+      error?: { status?: unknown; message?: unknown } | string;
+    };
+    if (typeof body.error === "string")
+      return safeError(body.error).slice(0, 500);
+    return safeError(
+      [body.error?.status, body.error?.message]
+        .filter((value) => typeof value === "string")
+        .join(": "),
+    ).slice(0, 500);
+  } catch {
+    return safeError(text).slice(0, 500);
+  }
 }
