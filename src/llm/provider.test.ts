@@ -181,6 +181,33 @@ describe("AI provider failover", () => {
     ]);
   });
 
+  it("falls back before sending a Groq request that exceeds its TPM budget", async () => {
+    let groqCalls = 0;
+    const groq = new GroqAIProvider({
+      apiKey: "groq-key",
+      model: "openai/gpt-oss-120b",
+      fetch: async () => {
+        groqCalls += 1;
+        return success();
+      },
+    });
+    const openrouter = new OpenRouterAIProvider({
+      apiKey: "openrouter-key",
+      model: "openrouter-test",
+      fetch: async () => success(),
+    });
+
+    const result = await new FailoverAIProvider([groq, openrouter]).generate({
+      ...request,
+      task: { evidence: "x".repeat(30_000) },
+    });
+
+    expect(groqCalls).toBe(0);
+    expect(result.provider).toBe("openrouter");
+    expect(result.fallbackUsed).toBe(true);
+    expect(result.fallbackReason).toBe("groq_request_budget_exceeded");
+  });
+
   it("falls back before generation when the configured Groq model is inaccessible", async () => {
     let groqCalls = 0;
     const groq = new GroqAIProvider({
@@ -250,7 +277,7 @@ describe("AI provider failover", () => {
     });
   });
 
-  it("does not fail over on schema-invalid content", async () => {
+  it("fails over on schema-invalid content and still validates the fallback", async () => {
     let fallbackCalls = 0;
     const groq = new GroqAIProvider({
       apiKey: "g",
@@ -269,10 +296,14 @@ describe("AI provider failover", () => {
       },
     });
 
-    await expect(
-      new FailoverAIProvider([groq, openrouter]).generate(request),
-    ).rejects.toThrow("structured output failed validation");
-    expect(fallbackCalls).toBe(0);
+    const result = await new FailoverAIProvider([groq, openrouter]).generate(
+      request,
+    );
+
+    expect(fallbackCalls).toBe(1);
+    expect(result.provider).toBe("openrouter");
+    expect(result.fallbackUsed).toBe(true);
+    expect(result.fallbackReason).toBe("groq_schema_rejected");
   });
 });
 
@@ -303,6 +334,7 @@ describe("configured provider chain", () => {
   it("validates exact Groq model access and uses it for every AI stage", async () => {
     const urls: string[] = [];
     const generationModels: string[] = [];
+    const generationRequests: Record<string, unknown>[] = [];
     const provider = new GroqAIProvider({
       apiKey: "groq-key",
       model: resolveGroqModel(undefined),
@@ -311,9 +343,9 @@ describe("configured provider chain", () => {
         urls.push(url);
         if (url.includes("/models/"))
           return Response.json({ id: "openai/gpt-oss-120b", active: true });
-        generationModels.push(
-          String((JSON.parse(String(init?.body)) as { model?: string }).model),
-        );
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        generationRequests.push(body);
+        generationModels.push(String(body.model));
         return success();
       },
     });
@@ -332,6 +364,48 @@ describe("configured provider chain", () => {
       "openai/gpt-oss-120b",
       "openai/gpt-oss-120b",
     ]);
+    expect(generationRequests.map((body) => body.max_tokens)).toEqual([
+      3072, 4096, 1536, 4096,
+    ]);
+    expect(generationRequests[0]).toMatchObject({
+      reasoning_effort: "low",
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "acm_research",
+          strict: false,
+          schema: {
+            type: "object",
+            required: ["answer"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+  });
+
+  it("enables schema-aware routing and response healing for OpenRouter", async () => {
+    let body: Record<string, unknown> | undefined;
+    const provider = new OpenRouterAIProvider({
+      apiKey: "openrouter-key",
+      model: "openai/gpt-oss-120b",
+      fetch: async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return success();
+      },
+    });
+
+    await provider.summarize(request);
+
+    expect(body).toMatchObject({
+      max_tokens: 3072,
+      plugins: [{ id: "response-healing" }],
+      provider: { require_parameters: true },
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "acm_research", strict: false },
+      },
+    });
   });
 
   it("returns a clear health diagnostic when the configured Groq model is inaccessible", async () => {
