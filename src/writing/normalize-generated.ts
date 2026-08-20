@@ -28,7 +28,7 @@ export function normalizeGeneratedArticleIdentity(
 export function normalizeGeneratedArticle(
   value: ArticleWritingResult,
 ): ArticleWritingResult {
-  const lines = value.mdx.split("\n");
+  const lines = unwrapOuterMdxFence(value.mdx).split("\n");
   const mdx: string[] = [];
   for (const line of lines) {
     const heading = /^(#{2,4})\s+(.+)$/.exec(line);
@@ -57,4 +57,10 @@ export function normalizeGeneratedArticle(
 
 function stripCitationMarkers(value: string) {
   return value.replace(citationMarker, "").replace(/\s+/g, " ").trim();
+}
+
+function unwrapOuterMdxFence(value: string) {
+  const match =
+    /^\s*```(?:mdx|markdown|md)?[ \t]*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(value);
+  return match?.[1] ?? value;
 }
