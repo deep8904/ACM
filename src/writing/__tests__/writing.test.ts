@@ -272,6 +272,22 @@ describe("Milestone 5 writing boundary", () => {
     expect(normalized.claimReferences[0]?.section).toBe("Event");
   });
 
+  it("unwraps an outer MDX fence without discarding article structure or citations", () => {
+    const generated = result({
+      mdx: `\`\`\`mdx\n${result().mdx}\n\`\`\``,
+    });
+
+    const normalized = normalizeGeneratedArticle(generated);
+
+    expect(normalized.mdx).toBe(result().mdx);
+    expect(normalized.mdx).toContain("## Event");
+    expect(normalized.mdx).toContain(`[source:${sourceId}]`);
+    expect(inspectMdx(normalized.mdx, new Set([sourceId]))).toMatchObject({
+      headings: expect.arrayContaining([{ level: 2, text: "Event" }]),
+      citationSourceIds: [sourceId],
+    });
+  });
+
   it("compresses a large research packet without losing evidence and fits the Groq route", async () => {
     const config = await loadWritingConfig(
       "automation/config/writing.example.yaml",
