@@ -86,6 +86,9 @@ describe("free hosted scheduler configuration", () => {
       run: "npm run db:migrate",
     });
     expect(jobs.drain.env.SITE_ORIGIN).toBe("${{ vars.SITE_ORIGIN }}");
+    expect(jobs.drain.env.GEMINI_API_KEY).toBe(
+      "${{ secrets.GEMINI_API_KEY || secrets.GOOGLE_AI_API_KEY }}",
+    );
     expect(jobs.drain.env.GROQ_MODEL).toBe(
       "${{ vars.GROQ_MODEL || 'llama-3.3-70b-versatile' }}",
     );

@@ -6,6 +6,7 @@ Daily operation is Telegram-only after this checklist passes.
 
 - Create dedicated API keys for Groq, OpenRouter, and Gemini for the automation project.
 - Add protected `GROQ_API_KEY`, `OPENROUTER_API_KEY`, and `GEMINI_API_KEY` secrets in the ACM GitHub production environment and Vercel project. Runtime order is Groq, then OpenRouter, then Gemini; every fallback is recorded in `llm_invocations`.
+- The worker temporarily accepts the legacy `GOOGLE_AI_API_KEY` secret as the Gemini value so rollout does not interrupt existing jobs. Remove the legacy secret after `GEMINI_API_KEY` is configured and `/system_status` reports the full provider chain ready.
 - Set `GOOGLE_AI_MODEL` as a repository/environment variable when overriding the checked default.
 - Never use browser automation against the Gemini consumer website.
 
