@@ -452,15 +452,25 @@ describe("AI provider failover", () => {
 });
 
 describe("configured provider chain", () => {
-  it("uses Groq, OpenRouter, then Gemini in production order", async () => {
+  it("uses Groq, OpenRouter, Gemini, then Bytez in production order", () => {
     const provider = createConfiguredLlmProvider({
       NODE_ENV: "test",
       GROQ_API_KEY: "g",
       OPENROUTER_API_KEY: "o",
       GEMINI_API_KEY: "m",
+      BYTEZ_API_KEY: "b",
     });
     expect(provider.name).toBe("provider_chain");
     expect(provider.model).toBe("openai/gpt-oss-120b");
+  });
+
+  it("configures Bytez as a standalone fallback with its supported default model", () => {
+    const provider = createConfiguredLlmProvider({
+      NODE_ENV: "test",
+      BYTEZ_API_KEY: "b",
+    });
+    expect(provider.name).toBe("provider_chain");
+    expect(provider.model).toBe("Qwen/Qwen3-4B");
   });
 
   it("rejects a retired Groq model before making a provider request", () => {
