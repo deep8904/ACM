@@ -67,6 +67,7 @@ import { TopicApprovalService } from "../telegram/service";
 import { TelegramBotApiClient } from "../telegram/telegram-client";
 import { loadWritingConfig } from "../writing/config";
 import { articleWritingResultSchema } from "../writing/models";
+import { normalizeGeneratedArticle } from "../writing/normalize-generated";
 import { WritingService } from "../writing/service";
 import { canonicalJsonHash, sha256 } from "../writing/task";
 import type { AutomationJob } from "./models";
@@ -442,8 +443,9 @@ export class AutomationWorker {
       }),
       schema: articleWritingResultSchema,
     });
-    const imported = await withTemporaryJson(generated.value, (path) =>
-      service.import(topicId, researchVersion, path),
+    const imported = await withTemporaryJson(
+      normalizeGeneratedArticle(generated.value),
+      (path) => service.import(topicId, researchVersion, path),
     );
     return {
       topicId,
