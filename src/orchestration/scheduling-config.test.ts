@@ -119,7 +119,7 @@ describe("free hosted scheduler configuration", () => {
       "${{ vars.GEMINI_MODEL || 'gemini-3.6-flash' }}",
     );
     expect(jobs.drain.env.BYTEZ_MODEL).toBe(
-      "${{ vars.BYTEZ_MODEL || 'Qwen/Qwen3-4B' }}",
+      "${{ vars.BYTEZ_MODEL || 'unsloth/Qwen3-8B' }}",
     );
   });
 

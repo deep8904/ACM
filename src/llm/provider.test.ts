@@ -427,7 +427,7 @@ describe("AI provider failover", () => {
     });
     const bytez = new BytezAIProvider({
       apiKey: "bytez-key",
-      model: "Qwen/Qwen3-4B",
+      model: "unsloth/Qwen3-8B",
       fetch: async (input, init) => {
         authorizations.push(
           new Headers(init?.headers).get("authorization") ?? "",
@@ -435,7 +435,7 @@ describe("AI provider failover", () => {
         return String(input).includes("/list/models")
           ? Response.json({
               error: null,
-              output: [{ modelId: "Qwen/Qwen3-4B" }],
+              output: [{ modelId: "unsloth/Qwen3-8B" }],
             })
           : success();
       },
@@ -446,7 +446,7 @@ describe("AI provider failover", () => {
     );
 
     expect(result.provider).toBe("bytez");
-    expect(result.model).toBe("Qwen/Qwen3-4B");
+    expect(result.model).toBe("unsloth/Qwen3-8B");
     expect(result.fallbackUsed).toBe(true);
     expect(result.fallbackReason).toBe("gemini_unavailable");
     expect(result.attempts).toEqual([
@@ -456,7 +456,7 @@ describe("AI provider failover", () => {
         succeeded: false,
         failureReason: "gemini_unavailable",
       },
-      { provider: "bytez", model: "Qwen/Qwen3-4B", succeeded: true },
+      { provider: "bytez", model: "unsloth/Qwen3-8B", succeeded: true },
     ]);
     expect(authorizations).toEqual(["bytez-key", "Bearer bytez-key"]);
   });
@@ -464,12 +464,12 @@ describe("AI provider failover", () => {
   it("classifies exhausted Bytez credits as a retryable quota failure", async () => {
     const bytez = new BytezAIProvider({
       apiKey: "bytez-key",
-      model: "Qwen/Qwen3-4B",
+      model: "unsloth/Qwen3-8B",
       fetch: async (input) =>
         String(input).includes("/list/models")
           ? Response.json({
               error: null,
-              output: [{ modelId: "Qwen/Qwen3-4B" }],
+              output: [{ modelId: "unsloth/Qwen3-8B" }],
             })
           : new Response("Payment required", { status: 402 }),
     });
@@ -506,7 +506,7 @@ describe("configured provider chain", () => {
       BYTEZ_API_KEY: "b",
     });
     expect(provider.name).toBe("provider_chain");
-    expect(provider.model).toBe("Qwen/Qwen3-4B");
+    expect(provider.model).toBe("unsloth/Qwen3-8B");
   });
 
   it("rejects a retired Groq model before making a provider request", () => {
@@ -602,7 +602,7 @@ describe("configured provider chain", () => {
     const calls: { url: string; body?: Record<string, unknown> }[] = [];
     const provider = new BytezAIProvider({
       apiKey: "bytez-key",
-      model: "Qwen/Qwen3-4B",
+      model: "unsloth/Qwen3-8B",
       fetch: async (input, init) => {
         const url = String(input);
         calls.push({
@@ -614,7 +614,7 @@ describe("configured provider chain", () => {
         return url.includes("/list/models")
           ? Response.json({
               error: null,
-              output: [{ modelId: "Qwen/Qwen3-4B" }],
+              output: [{ modelId: "unsloth/Qwen3-8B" }],
             })
           : success();
       },
@@ -630,7 +630,7 @@ describe("configured provider chain", () => {
       "https://api.bytez.com/models/v2/openai/v1/chat/completions",
     );
     expect(calls[1]?.body).toMatchObject({
-      model: "Qwen/Qwen3-4B",
+      model: "unsloth/Qwen3-8B",
       max_tokens: 3072,
     });
     expect(calls[1]?.body).not.toHaveProperty("response_format");
@@ -648,7 +648,7 @@ describe("configured provider chain", () => {
         calls += 1;
         return Response.json({
           error: null,
-          output: [{ modelId: "Qwen/Qwen3-4B" }],
+          output: [{ modelId: "unsloth/Qwen3-8B" }],
         });
       },
     });
@@ -659,7 +659,7 @@ describe("configured provider chain", () => {
       available: false,
       failureReason: "bytez_model_unavailable",
       diagnostic:
-        'Bytez model configuration invalid: model "missing/model" is unavailable or not accessible to this project',
+        'Bytez model configuration invalid: model "missing/model" is unavailable or not accessible to this project. Accessible chat models include: unsloth/Qwen3-8B',
     });
     await expect(provider.generate(request)).rejects.toMatchObject({
       reason: "bytez_model_unavailable",
@@ -673,7 +673,7 @@ describe("configured provider chain", () => {
       BYTEZ_API_KEY: "bytez-key",
     });
     expect(provider.name).toBe("provider_chain");
-    expect(provider.model).toBe("Qwen/Qwen3-4B");
+    expect(provider.model).toBe("unsloth/Qwen3-8B");
   });
 
   it("returns a clear health diagnostic when the configured Groq model is inaccessible", async () => {
