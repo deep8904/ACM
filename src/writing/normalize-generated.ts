@@ -28,7 +28,30 @@ export function normalizeGeneratedArticleIdentity(
 export function normalizeGeneratedArticle(
   value: ArticleWritingResult,
 ): ArticleWritingResult {
-  const lines = unwrapOuterMdxFence(value.mdx).split("\n");
+  const normalized = normalizeGeneratedMdx(
+    value.mdx,
+    value.claimReferences,
+    value.headingOutline,
+  );
+  return articleWritingResultSchema.parse({
+    ...value,
+    mdx: normalized.mdx,
+    headingOutline:
+      normalized.headingOutline.length >= 2
+        ? normalized.headingOutline
+        : normalized.declaredOutline,
+    claimReferences: normalized.claimReferences,
+  });
+}
+
+export function normalizeGeneratedMdx<
+  T extends { section: string; statement: string },
+>(
+  value: string,
+  claimReferences: T[],
+  headingOutline: { level: number; text: string }[] = [],
+) {
+  const lines = unwrapOuterMdxFence(value).split("\n");
   const mdx: string[] = [];
   for (const line of lines) {
     const heading = /^(#{2,4})\s+(.+)$/.exec(line);
@@ -49,7 +72,7 @@ export function normalizeGeneratedArticle(
     }),
   );
   const actualSections = extractSections(normalizedMdx);
-  const declaredOutline = value.headingOutline.map((heading) => ({
+  const declaredOutline = headingOutline.map((heading) => ({
     ...heading,
     text: normalizeHeadingText(heading.text),
   }));
@@ -68,11 +91,11 @@ export function normalizeGeneratedArticle(
   const actualByKey = new Map(
     actualOutline.map((heading) => [headingKey(heading.text), heading.text]),
   );
-  return articleWritingResultSchema.parse({
-    ...value,
+  return {
     mdx: normalizedMdx,
-    headingOutline: actualOutline.length >= 2 ? actualOutline : declaredOutline,
-    claimReferences: value.claimReferences.map((reference) => {
+    headingOutline: actualOutline,
+    declaredOutline,
+    claimReferences: claimReferences.map((reference) => {
       const section = normalizeHeadingText(reference.section);
       return {
         ...reference,
@@ -85,7 +108,7 @@ export function normalizeGeneratedArticle(
         ),
       };
     }),
-  });
+  };
 }
 
 function stripCitationMarkers(value: string) {

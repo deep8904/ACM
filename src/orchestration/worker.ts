@@ -70,6 +70,7 @@ import { articleWritingResultSchema } from "../writing/models";
 import {
   normalizeGeneratedArticle,
   normalizeGeneratedArticleIdentity,
+  normalizeGeneratedMdx,
 } from "../writing/normalize-generated";
 import { WritingService } from "../writing/service";
 import { canonicalJsonHash, sha256 } from "../writing/task";
@@ -558,6 +559,20 @@ export class AutomationWorker {
     );
     if (!task) throw new Error("Prepared revision input is missing");
     const taskHash = canonicalJsonHash(task);
+    const revisionGenerationSchema = revisionResultSchema.superRefine(
+      (value, context) => {
+        const normalized = normalizeGeneratedMdx(
+          value.mdx,
+          value.claimReferences,
+        );
+        if (normalized.headingOutline.length < 2)
+          context.addIssue({
+            code: "custom",
+            path: ["mdx"],
+            message: "Revision output must contain at least two H2-H4 headings",
+          });
+      },
+    );
     const generated = await this.provider.generate({
       jobId: job.id,
       stage: "revision",
@@ -574,14 +589,11 @@ export class AutomationWorker {
             ?.scope,
         },
       }),
-      schema: revisionResultSchema,
+      schema: revisionGenerationSchema,
+      normalizeOutput: (value) =>
+        normalizeRevisionIdentity(value, task, taskHash),
     });
-    const normalized = normalizeRevisionIdentity(
-      generated.value,
-      task,
-      taskHash,
-    );
-    const imported = await withTemporaryJson(normalized, (path) =>
+    const imported = await withTemporaryJson(generated.value, (path) =>
       services.revision.import(topicId, draftVersion, path),
     );
     return {
@@ -902,7 +914,7 @@ export function normalizeRevisionIdentity(
     .passthrough()
     .parse(task);
   const generated = z.record(z.string(), z.unknown()).parse(value);
-  return revisionResultSchema.parse({
+  const identified = revisionResultSchema.parse({
     ...generated,
     topicId: prepared.topicId,
     sourceDraftId: prepared.sourceDraftId,
@@ -912,6 +924,15 @@ export function normalizeRevisionIdentity(
       mode: "manual_claude_code",
       taskHash,
     },
+  });
+  const normalized = normalizeGeneratedMdx(
+    identified.mdx,
+    identified.claimReferences,
+  );
+  return revisionResultSchema.parse({
+    ...identified,
+    mdx: normalized.mdx,
+    claimReferences: normalized.claimReferences,
   });
 }
 
