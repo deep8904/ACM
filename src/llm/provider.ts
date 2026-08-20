@@ -614,7 +614,10 @@ function validateStructuredOutput<T>(
   return result.data;
 }
 function providerHttpError(provider: string, status: number, detail: string) {
-  const quota = /quota|resource_exhausted|insufficient.*credit/i.test(detail);
+  const quota =
+    /quota|resource_exhausted|insufficient.*credit|tokens per minute|\bTPM\b|rate limit|limit\s+\d[\d,]*\s*,?\s*requested/i.test(
+      detail,
+    );
   const timedOut = /timeout|timed out|deadline exceeded/i.test(detail);
   const unavailable = /unavailable|temporar(?:y|ily)|overloaded/i.test(detail);
   const reason = quota

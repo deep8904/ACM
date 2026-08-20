@@ -136,6 +136,51 @@ describe("AI provider failover", () => {
     expect(result.fallbackReason).toBe("groq_unavailable");
   });
 
+  it("falls back when Groq reports token-per-minute exhaustion as HTTP 413", async () => {
+    let groqCalls = 0;
+    const groq = new GroqAIProvider({
+      apiKey: "groq-key",
+      model: "openai/gpt-oss-120b",
+      fetch: async (input) => {
+        groqCalls += 1;
+        if (String(input).includes("/models/"))
+          return Response.json({ id: "openai/gpt-oss-120b", active: true });
+        return Response.json(
+          {
+            error: {
+              message:
+                "Request too large for model in organization on tokens per minute (TPM): Limit 8000, Requested 16541",
+            },
+          },
+          { status: 413 },
+        );
+      },
+    });
+    const openrouter = new OpenRouterAIProvider({
+      apiKey: "openrouter-key",
+      model: "openrouter-test",
+      fetch: async () => success(),
+    });
+
+    const result = await new FailoverAIProvider([groq, openrouter]).generate(
+      request,
+    );
+
+    expect(groqCalls).toBe(2);
+    expect(result.provider).toBe("openrouter");
+    expect(result.fallbackUsed).toBe(true);
+    expect(result.fallbackReason).toBe("groq_quota_exceeded");
+    expect(result.attempts).toEqual([
+      {
+        provider: "groq",
+        model: "openai/gpt-oss-120b",
+        succeeded: false,
+        failureReason: "groq_quota_exceeded",
+      },
+      { provider: "openrouter", model: "openrouter-test", succeeded: true },
+    ]);
+  });
+
   it("falls back before generation when the configured Groq model is inaccessible", async () => {
     let groqCalls = 0;
     const groq = new GroqAIProvider({
