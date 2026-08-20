@@ -98,6 +98,7 @@ describe("free hosted scheduler configuration", () => {
     expect(jobs.drain.env.GEMINI_API_KEY).toBe(
       "${{ secrets.GEMINI_API_KEY || secrets.GOOGLE_AI_API_KEY }}",
     );
+    expect(jobs.drain.env.BYTEZ_API_KEY).toBe("${{ secrets.BYTEZ_API_KEY }}");
     expect(jobs.drain.env.GROQ_MODEL).toBe(
       "${{ vars.GROQ_MODEL || 'openai/gpt-oss-120b' }}",
     );
@@ -106,6 +107,9 @@ describe("free hosted scheduler configuration", () => {
     );
     expect(jobs.drain.env.GEMINI_MODEL).toBe(
       "${{ vars.GEMINI_MODEL || 'gemini-3.6-flash' }}",
+    );
+    expect(jobs.drain.env.BYTEZ_MODEL).toBe(
+      "${{ vars.BYTEZ_MODEL || 'Qwen/Qwen3-4B' }}",
     );
   });
 

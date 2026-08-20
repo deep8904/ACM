@@ -183,6 +183,7 @@ abstract class OpenAICompatibleProvider extends StructuredAIProvider {
   }
   async generate<T>(input: AIProviderRequest<T>): Promise<LlmGeneration<T>> {
     const maxTokens = completionTokenBudget(input.stage);
+    const responseFormat = this.responseFormat(input);
     const response = await this.request(this.endpoint, {
       method: "POST",
       headers: {
@@ -193,9 +194,9 @@ abstract class OpenAICompatibleProvider extends StructuredAIProvider {
         model: this.model,
         messages: [
           { role: "system", content: input.system },
-          { role: "user", content: requestText(input) },
+          { role: "user", content: this.userMessage(input) },
         ],
-        response_format: jsonSchemaResponseFormat(input),
+        ...(responseFormat ? { response_format: responseFormat } : {}),
         max_tokens: maxTokens,
         ...(this.model.startsWith("openai/gpt-oss-")
           ? { reasoning_effort: "low" }
@@ -252,6 +253,14 @@ abstract class OpenAICompatibleProvider extends StructuredAIProvider {
     } catch (error) {
       throw normalizeProviderError(this.name, error);
     }
+  }
+  protected userMessage<T>(input: AIProviderRequest<T>) {
+    return requestText(input);
+  }
+  protected responseFormat<T>(
+    input: AIProviderRequest<T>,
+  ): Record<string, unknown> | undefined {
+    return jsonSchemaResponseFormat(input);
   }
 }
 
@@ -337,6 +346,73 @@ export class OpenRouterAIProvider extends OpenAICompatibleProvider {
     } catch (error) {
       return healthFailure(this, error);
     }
+  }
+}
+
+const BYTEZ_DEFAULT_MODEL = "Qwen/Qwen3-4B";
+const bytezModelListSchema = z.object({
+  error: z.unknown().nullable().optional(),
+  output: z.array(z.object({ modelId: z.string() })),
+});
+
+export class BytezAIProvider extends OpenAICompatibleProvider {
+  readonly name = "bytez";
+  private modelValidation?: Promise<void>;
+
+  constructor(options: HttpProviderOptions) {
+    super(
+      { ...options, timeoutMs: options.timeoutMs ?? 120_000 },
+      "https://api.bytez.com/models/v2/openai/v1/chat/completions",
+    );
+  }
+
+  override async generate<T>(
+    input: AIProviderRequest<T>,
+  ): Promise<LlmGeneration<T>> {
+    await (this.modelValidation ??= this.validateModelAccess());
+    return super.generate(input);
+  }
+
+  override async healthCheck(): Promise<AIProviderHealth> {
+    try {
+      await this.validateModelAccess();
+      return { provider: this.name, model: this.model, available: true };
+    } catch (error) {
+      const normalized = normalizeProviderError(this.name, error);
+      return {
+        provider: this.name,
+        model: this.model,
+        available: false,
+        failureReason: normalized.reason,
+        diagnostic: normalized.message,
+      };
+    }
+  }
+
+  protected override userMessage<T>(input: AIProviderRequest<T>) {
+    const schema = z.toJSONSchema(input.schema, { target: "draft-2020-12" });
+    delete schema.$schema;
+    return `${requestText(input)}\n\nOUTPUT JSON SCHEMA:\n${JSON.stringify(schema)}`;
+  }
+
+  protected override responseFormat(): undefined {
+    return undefined;
+  }
+
+  private async validateModelAccess() {
+    const response = await this.request(
+      "https://api.bytez.com/models/v2/list/models?task=chat",
+      { headers: { authorization: `Bearer ${this.options.apiKey}` } },
+    );
+    const models = bytezModelListSchema.parse(await response.json());
+    if (!models.output.some(({ modelId }) => modelId === this.model))
+      throw new AIProviderError(
+        `Bytez model configuration invalid: model "${this.model}" is unavailable or not accessible to this project`,
+        this.name,
+        "bytez_model_unavailable",
+        true,
+        404,
+      );
   }
 }
 
@@ -599,6 +675,13 @@ export function createConfiguredLlmProvider(
         ),
       }),
     );
+  if (environment.BYTEZ_API_KEY)
+    providers.push(
+      new BytezAIProvider({
+        apiKey: environment.BYTEZ_API_KEY,
+        model: environment.BYTEZ_MODEL?.trim() || BYTEZ_DEFAULT_MODEL,
+      }),
+    );
   return new FailoverAIProvider(providers, sql);
 }
 
@@ -662,6 +745,7 @@ function validateStructuredOutput<T>(
 }
 function providerHttpError(provider: string, status: number, detail: string) {
   const quota =
+    status === 402 ||
     /quota|resource_exhausted|insufficient.*credit|tokens per minute|\bTPM\b|rate limit|limit\s+\d[\d,]*\s*,?\s*requested/i.test(
       detail,
     );
