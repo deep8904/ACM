@@ -25,7 +25,7 @@ import {
 } from "./models";
 import { evaluateDraft } from "./quality";
 import { assertSafeSlug, createSlug } from "./slug";
-import { createWritingTask, sha256 } from "./task";
+import { createWritingTask, sha256, WRITING_PREPARATION_VERSION } from "./task";
 import { selectArticleType } from "./article-type";
 
 const taskInputSchema = z
@@ -134,9 +134,18 @@ export class WritingService {
       throw new Error(
         "Existing active writing job conflicts with this request",
       );
+    const existingTask = job.taskHash
+      ? await this.deps.tasks.readInput(topicId, researchVersion)
+      : undefined;
+    const existingPreparationVersion =
+      existingTask && typeof existingTask === "object"
+        ? (existingTask as { preparationVersion?: unknown }).preparationVersion
+        : undefined;
     if (
-      ["awaiting_manual_writing", "completed"].includes(job.status) &&
-      job.taskHash
+      job.status === "completed" ||
+      (job.status === "awaiting_manual_writing" &&
+        job.taskHash &&
+        existingPreparationVersion === WRITING_PREPARATION_VERSION)
     )
       return {
         job,

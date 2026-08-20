@@ -119,6 +119,7 @@ interface HttpProviderOptions {
 
 const GROQ_TPM_LIMIT = 8_000;
 const GROQ_TPM_SAFETY_LIMIT = 7_500;
+const MAX_MEDIUM_REQUEST_TOKENS = 16_000;
 const COMPLETION_TOKEN_BUDGET: Record<LlmStage, number> = {
   research: 3_072,
   writing: 4_096,
@@ -131,7 +132,30 @@ function completionTokenBudget(stage: LlmStage) {
 }
 
 function estimatedPromptTokens(input: AIProviderRequest<unknown>) {
-  return Math.ceil(`${input.system}\n\n${requestText(input)}`.length / 3 + 64);
+  const responseSchema = JSON.stringify(
+    z.toJSONSchema(input.schema, { target: "draft-2020-12" }),
+  );
+  return Math.ceil(
+    `${input.system}\n\n${requestText(input)}\n\n${responseSchema}`.length / 3 +
+      64,
+  );
+}
+
+export function estimateAIRequest(input: AIProviderRequest<unknown>) {
+  const promptTokens = estimatedPromptTokens(input);
+  const completionTokens = completionTokenBudget(input.stage);
+  const totalTokens = promptTokens + completionTokens;
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    size:
+      totalTokens <= GROQ_TPM_SAFETY_LIMIT
+        ? ("small" as const)
+        : totalTokens <= MAX_MEDIUM_REQUEST_TOKENS
+          ? ("medium" as const)
+          : ("large" as const),
+  };
 }
 
 function jsonSchemaResponseFormat<T>(input: AIProviderRequest<T>) {
@@ -567,6 +591,14 @@ export class FailoverAIProvider extends StructuredAIProvider {
     operation: "generate" | "summarize" | "review",
     input: AIProviderRequest<T>,
   ): Promise<LlmGeneration<T>> {
+    const estimate = estimateAIRequest(input);
+    if (estimate.size === "large")
+      throw new AIProviderError(
+        `AI request requires preparation before routing (estimated ${estimate.totalTokens} tokens exceeds the ${MAX_MEDIUM_REQUEST_TOKENS} token maximum)`,
+        this.name,
+        "llm_request_requires_compression",
+        false,
+      );
     const attempts: AIProviderAttempt[] = [];
     const requestHash = sha256(
       `${input.system.trim()}\n\n${requestText(input)}`,

@@ -3,6 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { writeAtomicJson } from "../../discovery/persistence";
+import {
+  FailoverAIProvider,
+  GroqAIProvider,
+  OpenRouterAIProvider,
+  estimateAIRequest,
+} from "../../llm/provider";
 import { researchPacketSchema } from "../../research/models";
 import {
   articleWritingResultSchema,
@@ -19,7 +25,7 @@ import {
   FileWritingJobRepository,
   FileWritingTaskRepository,
 } from "../storage";
-import { sha256 } from "../task";
+import { createWritingTask, sha256 } from "../task";
 import { evaluateDraft } from "../quality";
 
 const now = "2026-08-06T12:00:00.000Z";
@@ -220,6 +226,106 @@ function result(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Milestone 5 writing boundary", () => {
+  it("compresses a large research packet without losing evidence and fits the Groq route", async () => {
+    const config = await loadWritingConfig(
+      "automation/config/writing.example.yaml",
+    );
+    const research = packet({
+      executiveSummary: "A concise verified summary.",
+      technicalDetails: ["raw detail ".repeat(4_000)],
+      sourceIndex: packet().sourceIndex.map((source) => ({
+        ...source,
+        summary: "raw source history ".repeat(2_000),
+      })),
+    });
+    const bundle = await createWritingTask(
+      research,
+      "news_analysis",
+      {
+        warnings: [],
+        substantialMatches: [],
+        exactTitle: false,
+        slugCollision: false,
+        sameTopic: false,
+        sameEvent: false,
+      },
+      config,
+      {
+        prompt: "prompts/article-writer.md",
+        audience: "brand/audience.md",
+        style: "brand/writing-style.md",
+        editorial: "brand/editorial-rules.md",
+        design: "brand/design-style.md",
+        template: "templates/article.mdx",
+      },
+      now,
+    );
+    const input = bundle.input as {
+      brief: { requiredFacts: string[] };
+      verifiedEvidence: {
+        claims: { id: string; statement: string }[];
+        sources: { id: string }[];
+        excerpts: { id: string; sourceId: string }[];
+      };
+      citations: { sourceId: string }[];
+      preparationAudit: {
+        rawCharacters: number;
+        preparedCharacters: number;
+      };
+    };
+    expect(input.preparationAudit.rawCharacters).toBeGreaterThan(70_000);
+    expect(input.preparationAudit.preparedCharacters).toBeLessThan(12_000);
+    expect(input.brief.requiredFacts).toEqual([claimId]);
+    expect(input.verifiedEvidence.claims).toContainEqual(
+      expect.objectContaining({
+        id: claimId,
+        statement: "Widget supports offline mode.",
+      }),
+    );
+    expect(input.verifiedEvidence.sources.map((source) => source.id)).toEqual([
+      sourceId,
+    ]);
+    expect(input.verifiedEvidence.excerpts).toContainEqual(
+      expect.objectContaining({ id: "excerpt_1", sourceId }),
+    );
+    expect(input.citations).toContainEqual(
+      expect.objectContaining({ sourceId }),
+    );
+
+    const request = {
+      jobId: `automationjob_${"a".repeat(24)}`,
+      stage: "writing" as const,
+      system: "Write the article from the prepared brief.",
+      task: input,
+      schema: articleWritingResultSchema,
+    };
+    expect(estimateAIRequest(request).size).toBe("medium");
+    let groqCalls = 0;
+    const groq = new GroqAIProvider({
+      apiKey: "test",
+      model: "openai/gpt-oss-120b",
+      fetch: async () => {
+        groqCalls += 1;
+        return Response.json({ id: "openai/gpt-oss-120b" });
+      },
+    });
+    const openrouter = new OpenRouterAIProvider({
+      apiKey: "test",
+      model: "openai/gpt-oss-120b",
+      fetch: async () =>
+        Response.json({
+          choices: [{ message: { content: JSON.stringify(result()) } }],
+        }),
+    });
+    await expect(
+      new FailoverAIProvider([groq, openrouter]).generate(request),
+    ).resolves.toMatchObject({
+      provider: "openrouter",
+      value: { topicId: research.topicId },
+    });
+    expect(groqCalls).toBe(0);
+  });
+
   it("uses strict structured output schemas", () =>
     expect(() =>
       articleWritingResultSchema.parse({ ...result(), extra: true }),
@@ -438,6 +544,20 @@ describe("Milestone 5 writing boundary", () => {
     expect(writingInput.brief.mdxRequirements).toContain(
       "Every claimReferences[].section value must exactly match the text of an H2-H4 heading in mdx",
     );
+    await writeAtomicJson(
+      join(root, "tasks", research.topicId, "v1", "writing-input.json"),
+      { ...writingInput, preparationVersion: "1.0" },
+    );
+    const upgraded = await service.prepare(research.topicId, 1);
+    expect(upgraded.job.id).toBe(prepared.job.id);
+    expect(
+      JSON.parse(
+        await readFile(
+          join(root, "tasks", research.topicId, "v1", "writing-input.json"),
+          "utf8",
+        ),
+      ).preparationVersion,
+    ).toBe("2.0");
     const output = join(root, "writer-result.json");
     await writeAtomicJson(output, result());
     const imported = await service.import(research.topicId, 1, output);
@@ -458,6 +578,7 @@ describe("Milestone 5 writing boundary", () => {
       "utf8",
     );
     const replay = await service.prepare(research.topicId, 1);
+    expect(replay.job.id).toBe(prepared.job.id);
     expect(replay.job.taskHash).toBe(prepared.job.taskHash);
     const modifiedPath = join(root, "writer-result-modified.json");
     await writeAtomicJson(

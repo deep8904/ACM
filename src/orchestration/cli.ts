@@ -17,6 +17,19 @@ export async function main(args: string[]) {
     console.log(JSON.stringify(await runAutomationWorker(), null, 2));
     return;
   }
+  if (command === "drain-selected") {
+    console.log(
+      JSON.stringify(
+        await runAutomationWorker(
+          process.env,
+          selectedRetryJobIds(process.env.RETRY_JOB_IDS),
+        ),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
   const composition = createRepositoryComposition(process.env);
   try {
     await composition.verify();

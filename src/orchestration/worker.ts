@@ -70,6 +70,10 @@ import { articleWritingResultSchema } from "../writing/models";
 import { WritingService } from "../writing/service";
 import { canonicalJsonHash, sha256 } from "../writing/task";
 import type { AutomationJob } from "./models";
+import {
+  recordWritingPreparationAudit,
+  writingPreparationAudit,
+} from "./pipeline-audit";
 import { reconcileAutomationQueue } from "./reconcile";
 import { PostgresAutomationJobRepository } from "./repository";
 import {
@@ -135,6 +139,7 @@ export class AutomationWorker {
 
   async drain(
     maximum = Number(this.environment.AUTOMATION_MAX_JOBS_PER_RUN ?? 4),
+    selectedJobIds?: string[],
   ) {
     const completed: { id: string; type: string; status: string }[] = [];
     await this.jobs.heartbeatComponent({
@@ -145,7 +150,13 @@ export class AutomationWorker {
       observedAt: new Date().toISOString(),
     });
     for (let count = 0; count < maximum; count += 1) {
-      const job = await this.jobs.claim(this.workerId, this.leaseMs);
+      const job = selectedJobIds
+        ? await this.jobs.claimSelected(
+            this.workerId,
+            this.leaseMs,
+            selectedJobIds,
+          )
+        : await this.jobs.claim(this.workerId, this.leaseMs);
       if (!job) break;
       const timer = setInterval(
         () => void this.jobs.heartbeat(job.id, this.workerId, this.leaseMs),
@@ -413,6 +424,14 @@ export class AutomationWorker {
     });
     const prepared = await service.prepare(topicId, researchVersion);
     const task = await repositories.tasks.readInput(topicId, researchVersion);
+    const preparationAudit = writingPreparationAudit(task);
+    if (!preparationAudit || !this.composition.sql)
+      throw new Error("Audited writing preparation is missing");
+    await recordWritingPreparationAudit(
+      this.composition.sql,
+      job.id,
+      preparationAudit,
+    );
     const generated = await this.provider.generate({
       jobId: job.id,
       stage: "writing",
@@ -886,13 +905,18 @@ export function normalizeRevisionIdentity(
 
 export async function runAutomationWorker(
   environment: NodeJS.ProcessEnv = process.env,
+  selectedJobIds?: string[],
 ) {
   const composition = createRepositoryComposition(environment);
   try {
     await composition.verify();
     const worker = new AutomationWorker(composition, environment);
-    await worker.reconcile();
-    return await worker.drain();
+    if (!selectedJobIds) await worker.reconcile();
+    return await worker.drain(
+      selectedJobIds?.length ??
+        Number(environment.AUTOMATION_MAX_JOBS_PER_RUN ?? 4),
+      selectedJobIds,
+    );
   } finally {
     await composition.close();
   }
