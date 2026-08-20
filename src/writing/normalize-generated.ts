@@ -156,7 +156,34 @@ function canonicalSection(
   const statementMatches = actualSections.filter(({ body }) =>
     headingKey(body).includes(statementKey),
   );
-  return statementMatches.length === 1 ? statementMatches[0]!.heading : section;
+  if (statementMatches.length === 1) return statementMatches[0]!.heading;
+  if (actualSections.length) {
+    const statementTokens = meaningfulTokens(statement);
+    return actualSections
+      .map((candidate, index) => ({
+        ...candidate,
+        index,
+        score: overlapScore(statementTokens, meaningfulTokens(candidate.body)),
+      }))
+      .sort(
+        (left, right) => right.score - left.score || left.index - right.index,
+      )[0]!.heading;
+  }
+  return section;
+}
+
+function meaningfulTokens(value: string) {
+  return new Set(
+    headingKey(value)
+      .split(" ")
+      .filter((token) => token.length >= 4),
+  );
+}
+
+function overlapScore(left: Set<string>, right: Set<string>) {
+  let score = 0;
+  for (const token of left) if (right.has(token)) score += 1;
+  return score;
 }
 
 function extractSections(mdx: string) {
