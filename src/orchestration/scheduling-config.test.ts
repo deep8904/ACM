@@ -48,6 +48,7 @@ describe("free hosted scheduler configuration", () => {
         manual_window_start: { type: "string" },
         manual_window_end: { type: "string" },
         retry_job_ids: { type: "string" },
+        process_job_ids: { type: "string" },
       },
     });
     expect(concurrency).toEqual({
@@ -76,16 +77,17 @@ describe("free hosted scheduler configuration", () => {
       run: "npm run automation:retry-selected",
     });
     expect(jobs.drain.steps).toContainEqual({
-      name: "Drain only explicitly selected retry jobs",
-      if: "${{ github.event_name == 'workflow_dispatch' && inputs.migration_only != true && inputs.audit_only != true && inputs.retry_job_ids != '' }}",
+      name: "Drain only explicitly selected jobs",
+      if: "${{ github.event_name == 'workflow_dispatch' && inputs.migration_only != true && inputs.audit_only != true && (inputs.retry_job_ids != '' || inputs.process_job_ids != '') }}",
       env: {
-        RETRY_JOB_IDS: "${{ inputs.retry_job_ids }}",
+        SELECTED_JOB_IDS:
+          "${{ inputs.retry_job_ids || inputs.process_job_ids }}",
       },
       run: "npm run automation:worker-selected",
     });
     expect(jobs.drain.steps).toContainEqual({
       name: "Reconcile and drain durable work",
-      if: "${{ github.event_name != 'workflow_dispatch' || (inputs.migration_only != true && inputs.audit_only != true && inputs.retry_job_ids == '') }}",
+      if: "${{ github.event_name != 'workflow_dispatch' || (inputs.migration_only != true && inputs.audit_only != true && inputs.retry_job_ids == '' && inputs.process_job_ids == '') }}",
       run: "npm run automation:worker",
     });
     expect(jobs.drain.steps).toContainEqual({
