@@ -773,9 +773,22 @@ function validateStructuredOutput<T>(
       true,
     );
   }
-  const result = schema.safeParse(
-    normalizeOutput ? normalizeOutput(parsed) : parsed,
-  );
+  let normalized = parsed;
+  try {
+    normalized = normalizeOutput ? normalizeOutput(parsed) : parsed;
+  } catch (error) {
+    const diagnostic =
+      error instanceof z.ZodError
+        ? `${error.issues[0]?.path.join(".") || "output"}: ${error.issues[0]?.message ?? "invalid normalized output"}`
+        : safeError(error);
+    throw new AIProviderError(
+      `LLM structured output failed normalization: ${diagnostic}`,
+      provider,
+      `${provider}_schema_rejected`,
+      true,
+    );
+  }
+  const result = schema.safeParse(normalized);
   if (!result.success)
     throw new AIProviderError(
       `LLM structured output failed validation: ${result.error.issues[0]?.message ?? "unknown schema error"}`,

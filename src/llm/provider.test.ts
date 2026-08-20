@@ -388,6 +388,36 @@ describe("AI provider failover", () => {
     ).resolves.toMatchObject({ value: { answer: "safe" } });
   });
 
+  it("fails over when a task-owned output normalizer rejects provider output", async () => {
+    const first = new OpenRouterAIProvider({
+      apiKey: "first",
+      model: "first",
+      fetch: async () =>
+        Response.json({
+          choices: [{ message: { content: '{"answer":"safe"}' } }],
+        }),
+    });
+    const second = new OpenRouterAIProvider({
+      apiKey: "second",
+      model: "second",
+      fetch: async () => success(),
+    });
+    let calls = 0;
+
+    const result = await new FailoverAIProvider([first, second]).generate({
+      ...request,
+      normalizeOutput: (value) => {
+        calls += 1;
+        if (calls === 1) throw new z.ZodError([]);
+        return value;
+      },
+    });
+
+    expect(result.provider).toBe("openrouter");
+    expect(result.model).toBe("second");
+    expect(result.fallbackReason).toBe("openrouter_schema_rejected");
+  });
+
   it("uses Bytez after earlier providers are unavailable", async () => {
     const gemini = new GeminiAIProvider({
       apiKey: "gemini-key",

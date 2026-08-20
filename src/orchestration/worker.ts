@@ -914,7 +914,20 @@ export function normalizeRevisionIdentity(
     .passthrough()
     .parse(task);
   const generated = z.record(z.string(), z.unknown()).parse(value);
-  const identified = revisionResultSchema.parse({
+  const normalizable = z
+    .object({
+      mdx: z.string(),
+      claimReferences: z.array(
+        z.object({ section: z.string(), statement: z.string() }).passthrough(),
+      ),
+    })
+    .passthrough()
+    .parse(generated);
+  const normalized = normalizeGeneratedMdx(
+    normalizable.mdx,
+    normalizable.claimReferences,
+  );
+  return revisionResultSchema.parse({
     ...generated,
     topicId: prepared.topicId,
     sourceDraftId: prepared.sourceDraftId,
@@ -924,13 +937,6 @@ export function normalizeRevisionIdentity(
       mode: "manual_claude_code",
       taskHash,
     },
-  });
-  const normalized = normalizeGeneratedMdx(
-    identified.mdx,
-    identified.claimReferences,
-  );
-  return revisionResultSchema.parse({
-    ...identified,
     mdx: normalized.mdx,
     claimReferences: normalized.claimReferences,
   });
