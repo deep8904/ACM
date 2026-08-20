@@ -5,6 +5,26 @@ import {
 
 const citationMarker = /\[(?:source|sources):[^\]]+\]/g;
 
+export function normalizeGeneratedArticleIdentity(
+  value: unknown,
+  identity: {
+    topicId: string;
+    researchPacketId: string;
+    researchPacketVersion: number;
+    articleType: ArticleWritingResult["articleType"];
+  },
+) {
+  if (!value || typeof value !== "object") return value;
+  return {
+    ...(value as Record<string, unknown>),
+    schemaVersion: "1.0",
+    topicId: identity.topicId,
+    researchPacketId: identity.researchPacketId,
+    researchPacketVersion: identity.researchPacketVersion,
+    articleType: identity.articleType,
+  };
+}
+
 export function normalizeGeneratedArticle(
   value: ArticleWritingResult,
 ): ArticleWritingResult {

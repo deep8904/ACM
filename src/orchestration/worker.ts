@@ -67,7 +67,10 @@ import { TopicApprovalService } from "../telegram/service";
 import { TelegramBotApiClient } from "../telegram/telegram-client";
 import { loadWritingConfig } from "../writing/config";
 import { articleWritingResultSchema } from "../writing/models";
-import { normalizeGeneratedArticle } from "../writing/normalize-generated";
+import {
+  normalizeGeneratedArticle,
+  normalizeGeneratedArticleIdentity,
+} from "../writing/normalize-generated";
 import { WritingService } from "../writing/service";
 import { canonicalJsonHash, sha256 } from "../writing/task";
 import type { AutomationJob } from "./models";
@@ -442,6 +445,13 @@ export class AutomationWorker {
         taskHash: prepared.job.taskHash,
       }),
       schema: articleWritingResultSchema,
+      normalizeOutput: (value) =>
+        normalizeGeneratedArticleIdentity(value, {
+          topicId,
+          researchPacketId: prepared.job.researchPacketId,
+          researchPacketVersion: prepared.job.researchPacketVersion,
+          articleType: prepared.job.articleType,
+        }),
     });
     const imported = await withTemporaryJson(
       normalizeGeneratedArticle(generated.value),

@@ -16,7 +16,10 @@ import {
 } from "../models";
 import { loadWritingConfig } from "../config";
 import { inspectMdx } from "../mdx";
-import { normalizeGeneratedArticle } from "../normalize-generated";
+import {
+  normalizeGeneratedArticle,
+  normalizeGeneratedArticleIdentity,
+} from "../normalize-generated";
 import { WritingService } from "../service";
 import { selectArticleType } from "../article-type";
 import {
@@ -227,6 +230,26 @@ function result(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Milestone 5 writing boundary", () => {
+  it("restores immutable writing identity before schema validation", () => {
+    const normalized = normalizeGeneratedArticleIdentity(
+      { ...result(), schemaVersion: "2.0", topicId: "wrong" },
+      {
+        topicId: "topic_fixture",
+        researchPacketId: "packet_aaaaaaaaaaaaaaaaaaaaaaaa",
+        researchPacketVersion: 1,
+        articleType: "news_analysis",
+      },
+    );
+
+    expect(articleWritingResultSchema.parse(normalized)).toMatchObject({
+      schemaVersion: "1.0",
+      topicId: "topic_fixture",
+      researchPacketId: "packet_aaaaaaaaaaaaaaaaaaaaaaaa",
+      researchPacketVersion: 1,
+      articleType: "news_analysis",
+    });
+  });
+
   it("moves heading citations into the body and aligns section identities", () => {
     const generated = result({
       mdx: result().mdx.replace("## Event", `## Event [source:${sourceId}]`),

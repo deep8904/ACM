@@ -10,6 +10,7 @@ export interface AIProviderRequest<T> {
   system: string;
   task: unknown;
   schema: z.ZodType<T>;
+  normalizeOutput?: (value: unknown) => unknown;
 }
 export interface AIProviderAttempt {
   provider: string;
@@ -238,6 +239,7 @@ abstract class OpenAICompatibleProvider extends StructuredAIProvider {
       envelope.choices[0]?.message.content,
       input.schema,
       this.name,
+      input.normalizeOutput,
     );
     return this.result(
       value,
@@ -512,7 +514,12 @@ export class GeminiAIProvider extends StructuredAIProvider {
       const text = envelope.candidates?.[0]?.content.parts
         .map((part) => part.text ?? "")
         .join("");
-      const value = validateStructuredOutput(text, input.schema, this.name);
+      const value = validateStructuredOutput(
+        text,
+        input.schema,
+        this.name,
+        input.normalizeOutput,
+      );
       return this.result(
         value,
         envelope.modelVersion,
@@ -746,6 +753,7 @@ function validateStructuredOutput<T>(
   text: string | null | undefined,
   schema: z.ZodType<T>,
   provider: string,
+  normalizeOutput?: (value: unknown) => unknown,
 ) {
   if (!text?.trim())
     throw new AIProviderError(
@@ -765,7 +773,9 @@ function validateStructuredOutput<T>(
       true,
     );
   }
-  const result = schema.safeParse(parsed);
+  const result = schema.safeParse(
+    normalizeOutput ? normalizeOutput(parsed) : parsed,
+  );
   if (!result.success)
     throw new AIProviderError(
       `LLM structured output failed validation: ${result.error.issues[0]?.message ?? "unknown schema error"}`,
