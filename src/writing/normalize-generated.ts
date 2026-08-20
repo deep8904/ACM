@@ -48,6 +48,7 @@ export function normalizeGeneratedArticle(
       text: heading[2]!.trim(),
     }),
   );
+  const actualSections = extractSections(normalizedMdx);
   const declaredOutline = value.headingOutline.map((heading) => ({
     ...heading,
     text: normalizeHeadingText(heading.text),
@@ -71,14 +72,19 @@ export function normalizeGeneratedArticle(
     ...value,
     mdx: normalizedMdx,
     headingOutline: actualOutline.length >= 2 ? actualOutline : declaredOutline,
-    claimReferences: value.claimReferences.map((reference) => ({
-      ...reference,
-      section: canonicalSection(
-        normalizeHeadingText(reference.section),
-        actualByKey,
-        declaredToActual,
-      ),
-    })),
+    claimReferences: value.claimReferences.map((reference) => {
+      const section = normalizeHeadingText(reference.section);
+      return {
+        ...reference,
+        section: canonicalSection(
+          section,
+          reference.statement,
+          actualByKey,
+          declaredToActual,
+          actualSections,
+        ),
+      };
+    }),
   });
 }
 
@@ -106,11 +112,39 @@ function headingKey(value: string) {
 
 function canonicalSection(
   section: string,
+  statement: string,
   actualByKey: Map<string, string>,
   declaredToActual: Map<string, string>,
+  actualSections: { heading: string; body: string }[],
 ) {
   const key = headingKey(section);
-  return actualByKey.get(key) ?? declaredToActual.get(key) ?? section;
+  const direct = actualByKey.get(key) ?? declaredToActual.get(key);
+  if (direct) return direct;
+  const nameMatches = actualSections.filter(({ heading }) => {
+    const candidate = headingKey(heading);
+    return (
+      key.length >= 4 &&
+      candidate.length >= 4 &&
+      (candidate.includes(key) || key.includes(candidate))
+    );
+  });
+  if (nameMatches.length === 1) return nameMatches[0]!.heading;
+  const statementKey = headingKey(statement);
+  const statementMatches = actualSections.filter(({ body }) =>
+    headingKey(body).includes(statementKey),
+  );
+  return statementMatches.length === 1 ? statementMatches[0]!.heading : section;
+}
+
+function extractSections(mdx: string) {
+  const matches = [...mdx.matchAll(/^(#{2,4})\s+(.+)$/gm)];
+  return matches.map((match, index) => ({
+    heading: match[2]!.trim(),
+    body: mdx.slice(
+      (match.index ?? 0) + match[0].length,
+      matches[index + 1]?.index ?? mdx.length,
+    ),
+  }));
 }
 
 function unwrapOuterMdxFence(value: string) {

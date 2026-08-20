@@ -310,6 +310,20 @@ describe("Milestone 5 writing boundary", () => {
     expect(normalized.claimReferences[0]?.section).toBe("What happened");
   });
 
+  it("maps a free-form claim label only to the unique section containing its statement", () => {
+    const base = result();
+    const generated = result({
+      claimReferences: base.claimReferences.map((reference) => ({
+        ...reference,
+        section: "Release evidence",
+      })),
+    });
+
+    const normalized = normalizeGeneratedArticle(generated);
+
+    expect(normalized.claimReferences[0]?.section).toBe("Event");
+  });
+
   it("compresses a large research packet without losing evidence and fits the Groq route", async () => {
     const config = await loadWritingConfig(
       "automation/config/writing.example.yaml",
