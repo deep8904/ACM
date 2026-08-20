@@ -37,6 +37,7 @@ export interface AIProviderHealth {
   model: string;
   available: boolean;
   failureReason?: string;
+  diagnostic?: string;
 }
 export interface AIProvider {
   readonly name: string;
@@ -50,7 +51,10 @@ export type LLMProvider = AIProvider;
 
 export class LlmProviderConfigurationError extends Error {
   readonly code = "llm_provider_configuration_invalid";
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
     super(message);
     this.name = "LlmProviderConfigurationError";
   }
@@ -215,8 +219,58 @@ abstract class OpenAICompatibleProvider extends StructuredAIProvider {
 
 export class GroqAIProvider extends OpenAICompatibleProvider {
   readonly name = "groq";
+  private modelValidation?: Promise<void>;
+
   constructor(options: HttpProviderOptions) {
     super(options, "https://api.groq.com/openai/v1/chat/completions");
+  }
+
+  override async generate<T>(
+    input: AIProviderRequest<T>,
+  ): Promise<LlmGeneration<T>> {
+    await (this.modelValidation ??= this.validateModelAccess());
+    return super.generate(input);
+  }
+
+  override async healthCheck(): Promise<AIProviderHealth> {
+    try {
+      await this.validateModelAccess();
+      return { provider: this.name, model: this.model, available: true };
+    } catch (error) {
+      const normalized = normalizeProviderError(this.name, error);
+      return {
+        provider: this.name,
+        model: this.model,
+        available: false,
+        failureReason: normalized.reason,
+        diagnostic: normalized.message,
+      };
+    }
+  }
+
+  private async validateModelAccess() {
+    try {
+      await this.request(
+        `https://api.groq.com/openai/v1/models/${this.model
+          .split("/")
+          .map((segment) => encodeURIComponent(segment))
+          .join("/")}`,
+        { headers: { authorization: `Bearer ${this.options.apiKey}` } },
+      );
+    } catch (error) {
+      if (
+        error instanceof LlmProviderConfigurationError &&
+        error.status === 404
+      )
+        throw new AIProviderError(
+          `Groq model configuration invalid: model "${this.model}" is unavailable or not accessible to this project`,
+          this.name,
+          "groq_model_unavailable",
+          true,
+          404,
+        );
+      throw error;
+    }
   }
 }
 export class OpenRouterAIProvider extends OpenAICompatibleProvider {
@@ -303,6 +357,7 @@ export class GeminiAIProvider extends StructuredAIProvider {
         if ([400, 401, 403, 404].includes(response.status))
           throw new LlmProviderConfigurationError(
             `Gemini request failed (${response.status}${detail ? ` ${detail}` : ""})`,
+            response.status,
           );
         throw providerHttpError(this.name, response.status, detail);
       }
@@ -477,7 +532,7 @@ export function createConfiguredLlmProvider(
     providers.push(
       new GroqAIProvider({
         apiKey: environment.GROQ_API_KEY,
-        model: environment.GROQ_MODEL ?? "llama-3.3-70b-versatile",
+        model: resolveGroqModel(environment.GROQ_MODEL),
       }),
     );
   if (environment.OPENROUTER_API_KEY)
@@ -499,6 +554,21 @@ export function createConfiguredLlmProvider(
     );
   return new FailoverAIProvider(providers, sql);
 }
+
+export const GROQ_PRODUCTION_MODELS = [
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+] as const;
+
+export function resolveGroqModel(configuredModel: string | undefined) {
+  const model = configuredModel?.trim() || "openai/gpt-oss-120b";
+  if (!(GROQ_PRODUCTION_MODELS as readonly string[]).includes(model))
+    throw new LlmProviderConfigurationError(
+      `Unsupported GROQ_MODEL "${model}". Supported production models: ${GROQ_PRODUCTION_MODELS.join(", ")}`,
+    );
+  return model;
+}
+
 export function geminiGenerateContentUrl(model: string, apiKey: string) {
   const canonicalModel = model.replace(/^models\//, "");
   return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(canonicalModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -566,7 +636,7 @@ function providerHttpError(provider: string, status: number, detail: string) {
   const message = `${provider} request failed (${status}${detail ? ` ${detail}` : ""})`;
   return retryable
     ? new AIProviderError(message, provider, reason, true, status)
-    : new LlmProviderConfigurationError(message);
+    : new LlmProviderConfigurationError(message, status);
 }
 function normalizeProviderError(
   provider: string,
@@ -612,6 +682,7 @@ function healthFailure(
     model: provider.model,
     available: false,
     failureReason: normalized.reason,
+    diagnostic: normalized.message,
   };
 }
 function stripCodeFence(value: string) {

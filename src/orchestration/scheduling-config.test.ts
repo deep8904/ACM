@@ -90,7 +90,7 @@ describe("free hosted scheduler configuration", () => {
       "${{ secrets.GEMINI_API_KEY || secrets.GOOGLE_AI_API_KEY }}",
     );
     expect(jobs.drain.env.GROQ_MODEL).toBe(
-      "${{ vars.GROQ_MODEL || 'llama-3.3-70b-versatile' }}",
+      "${{ vars.GROQ_MODEL || 'openai/gpt-oss-120b' }}",
     );
     expect(jobs.drain.env.OPENROUTER_MODEL).toBe(
       "${{ vars.OPENROUTER_MODEL || 'openai/gpt-oss-120b' }}",
