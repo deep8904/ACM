@@ -419,6 +419,7 @@ describe("AI provider failover", () => {
   });
 
   it("uses Bytez after earlier providers are unavailable", async () => {
+    const authorizations: string[] = [];
     const gemini = new GeminiAIProvider({
       apiKey: "gemini-key",
       model: "gemini-test",
@@ -427,13 +428,17 @@ describe("AI provider failover", () => {
     const bytez = new BytezAIProvider({
       apiKey: "bytez-key",
       model: "Qwen/Qwen3-4B",
-      fetch: async (input) =>
-        String(input).includes("/list/models")
+      fetch: async (input, init) => {
+        authorizations.push(
+          new Headers(init?.headers).get("authorization") ?? "",
+        );
+        return String(input).includes("/list/models")
           ? Response.json({
               error: null,
               output: [{ modelId: "Qwen/Qwen3-4B" }],
             })
-          : success(),
+          : success();
+      },
     });
 
     const result = await new FailoverAIProvider([gemini, bytez]).generate(
@@ -453,6 +458,7 @@ describe("AI provider failover", () => {
       },
       { provider: "bytez", model: "Qwen/Qwen3-4B", succeeded: true },
     ]);
+    expect(authorizations).toEqual(["bytez-key", "Bearer bytez-key"]);
   });
 
   it("classifies exhausted Bytez credits as a retryable quota failure", async () => {

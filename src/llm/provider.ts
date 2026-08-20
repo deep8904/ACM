@@ -428,7 +428,7 @@ export class BytezAIProvider extends OpenAICompatibleProvider {
   private async validateModelAccess() {
     const response = await this.request(
       "https://api.bytez.com/models/v2/list/models?task=chat",
-      { headers: { authorization: `Bearer ${this.options.apiKey}` } },
+      { headers: { authorization: this.options.apiKey } },
     );
     const models = bytezModelListSchema.parse(await response.json());
     if (!models.output.some(({ modelId }) => modelId === this.model))
